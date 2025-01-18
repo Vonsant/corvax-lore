@@ -39,8 +39,7 @@ jobs:
 
       - name: Create analysis script
         run: |
-          cat > analyze.py << 'EOL'
-          import os
+          echo 'import os
           import re
           import json
           from subprocess import check_output
@@ -48,10 +47,10 @@ jobs:
           def analyze_text(text):
               if not isinstance(text, str):
                   text = str(text)
-              words = len(re.findall(r'\b\w+\b', text))
+              words = len(re.findall(r"\b\w+\b", text))
               chars = len(text)
               chars_no_spaces = len(text.replace(" ", ""))
-              punctuation = len(re.findall(r'[!"#$%&\'()*+,\-./:;<=>?@\[\\\]^_`{|}~]', text))
+              punctuation = len(re.findall(r"[!\"#$%&\()*+,\-./:;<=>?@\[\\\]^_`{|}~]", text))
               return {
                   "words": words,
                   "chars": chars,
@@ -61,7 +60,7 @@ jobs:
 
           def main():
               try:
-                  base_branch = os.getenv('GITHUB_BASE_REF', 'main')
+                  base_branch = os.getenv("GITHUB_BASE_REF", "main")
                   diff_output = check_output(["git", "diff", "--unified=0", f"origin/{base_branch}"], encoding="utf-8")
                   file_changes = {}
 
@@ -128,8 +127,7 @@ jobs:
                   raise
 
           if __name__ == "__main__":
-              main()
-          EOL
+              main()' > analyze.py
 
       - name: Run analysis
         run: python analyze.py
