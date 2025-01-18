@@ -2,10 +2,8 @@ name: "Text Analyzer"
 
 on:
   pull_request:
-    # Ловим Pull Request события
-    branches:
-      - main
-    # Анализируем только *.md файлы (по вашему условию)
+    # Запуск только на Pull Request. 
+    # Если хотите анализировать только при изменениях *.md, оставьте paths.
     paths:
       - '**/*.md'
 
@@ -14,38 +12,41 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      # Шаг 1: Клонируем репозиторий и подтягиваем все ветки/историю
-      - name: Checkout code
+      # 1) Клонируем репозиторий с полной историей
+      - name: Checkout repository
         uses: actions/checkout@v3
         with:
-          # fetch-depth: 0 — полный клон, чтобы гарантированно было видно origin/main
+          # fetch-depth: 0 — чтобы гарантированно иметь локально origin/main
           fetch-depth: 0
 
-      # Шаг 2: Установка jq (если нужно)
+      # 2) Устанавливаем jq (для обработки JSON)
       - name: Install jq
         run: sudo apt-get install -y jq
 
-      # Шаг 3: (опционально) посмотреть, что у нас есть локально:
+      # (Необязательно) Шаг отладки — можно раскомментировать, если нужно посмотреть, какие ветки есть локально
       - name: Debug info
         run: |
-          echo ">>> Remotes:"
+          echo ">>> Debug Info:"
+          echo "Remotes:"
           git remote -v
-          echo ">>> Branches (local and remote):"
+          echo "Branches (локальные + remote):"
           git branch -a
-          echo ">>> PR base ref: ${{ github.event.pull_request.base.ref }}"
-          echo ">>> PR head ref: ${{ github.event.pull_request.head.ref }}"
+          echo "PR base ref: ${{ github.event.pull_request.base.ref }}"
+          echo "PR head ref: ${{ github.event.pull_request.head.ref }}"
 
-      # Шаг 4: Подтягиваем ещё раз базовую ветку конкретного PR (на случай, если не подтянулась):
+      # 3) Явно подтягиваем базовую ветку (ветку, в которую идёт PR).
+      #    Если PR в main, значит это будет origin/main.
       - name: Fetch base branch
         run: |
           BASE_REF=${{ github.event.pull_request.base.ref }}
           if [ -z "$BASE_REF" ]; then
+            # На всякий случай fallback
             BASE_REF="main"
           fi
-          echo "Fetching origin/$BASE_REF..."
+          echo ">>> Fetching origin/$BASE_REF"
           git fetch origin $BASE_REF
 
-      # Шаг 5: Получаем список изменённых *.md файлов
+      # 4) Получаем список изменённых *.md-файлов в сравнении с базовой веткой
       - name: Get changed files
         id: get_changed_files
         run: |
@@ -53,32 +54,99 @@ jobs:
           if [ -z "$BASE_REF" ]; then
             BASE_REF="main"
           fi
-          echo "Сравниваем с веткой: origin/$BASE_REF"
-          
-          # Собираем список изменённых .md-файлов
+          echo ">>> Сравниваем с веткой: origin/$BASE_REF"
+
+          # Собираем список изменённых *.md-файлов
           CHANGED_FILES=$(git diff --name-only origin/$BASE_REF -- '*.md')
-          
-          echo "Найденные изменённые файлы:"
-          echo "$CHANGED_FILES"
-          
           echo "CHANGED_FILES=$CHANGED_FILES" >> $GITHUB_ENV
 
-      # Шаг 6: Анализируем изменённые файлы (пример из вашего кода)
+          echo ">>> Найденные изменённые файлы:"
+          echo "$CHANGED_FILES"
+
+      # 5) Анализируем изменённые Markdown-файлы
       - name: Analyze changed Markdown files
         id: analyze_files
         run: |
           echo "Начинаем анализ изменённых файлов:"
+          
+          # Переменная из предыдущего шага
           CHANGED_FILES="${CHANGED_FILES}"
+          echo "Files to analyze: $CHANGED_FILES"
 
+          # Сюда будем складывать результат (текст комментария)
           REVIEW=""
+
+          # Создадим временную папку, чтобы не затирать файлы
+          mkdir -p temp
+
+          # Перебираем все изменённые файлы
           for FILE in $CHANGED_FILES; do
             echo "Анализ файла: $FILE"
-            # ... ваш произвольный анализ ...
+
+            # Получаем "старую" версию файла из базовой ветки (если файл отсутствовал — получится пусто)
+            git show origin/${{ github.event.pull_request.base.ref }}:$FILE > temp/old_version.md 2>/dev/null || echo "" > temp/old_version.md
+
+            # Новая версия (текущий файл из HEAD PR)
+            cat "$FILE" > temp/new_version.md 2>/dev/null || echo "" > temp/new_version.md
+
+            # Превращаем содержимое старой/новой версии в JSON-строку
+            OLD_TEXT=$(cat temp/old_version.md | jq -Rs .)
+            NEW_TEXT=$(cat temp/new_version.md | jq -Rs .)
+
+            # Анализ тональности (старый текст)
+            OLD_SENTIMENT=$(curl -s -X POST -H "Content-Type: application/json" \
+              -d "{\"inputs\": $OLD_TEXT}" \
+              https://api-inference.huggingface.co/models/blanchefort/rubert-base-cased-sentiment)
+
+            # Анализ тональности (новый текст)
+            NEW_SENTIMENT=$(curl -s -X POST -H "Content-Type: application/json" \
+              -d "{\"inputs\": $NEW_TEXT}" \
+              https://api-inference.huggingface.co/models/blanchefort/rubert-base-cased-sentiment)
+
+            # Обобщение (старый текст)
+            OLD_SUMMARY=$(curl -s -X POST -H "Content-Type: application/json" \
+              -d "{\"inputs\": $OLD_TEXT}" \
+              https://api-inference.huggingface.co/models/facebook/bart-large-cnn)
+
+            # Обобщение (новый текст)
+            NEW_SUMMARY=$(curl -s -X POST -H "Content-Type: application/json" \
+              -d "{\"inputs\": $NEW_TEXT}" \
+              https://api-inference.huggingface.co/models/facebook/bart-large-cnn)
+
+            # Сравнение кратких обобщений через diff (если отличаются)
+            SUMMARY_COMPARISON=$(diff <(echo "$OLD_SUMMARY" | jq -r '.[0].summary_text') <(echo "$NEW_SUMMARY" | jq -r '.[0].summary_text') || true)
+
+            # Проверка орфографии (новая версия) через Yandex.Speller
+            SPELLING_ERRORS=$(curl -s -X POST "https://speller.yandex.net/services/spellservice.json/checkText" \
+              -H "Content-Type: application/x-www-form-urlencoded" \
+              -d "text=$(cat temp/new_version.md)&lang=ru")
+
+            # Формируем блок отчёта
+            REVIEW+="\n### Анализ файла: $FILE\n\n"
+            REVIEW+="**Анализ старой версии (Hugging Face):**\n$OLD_SENTIMENT\n\n"
+            REVIEW+="**Анализ новой версии (Hugging Face):**\n$NEW_SENTIMENT\n\n"
+            REVIEW+="**Обобщение старого текста:**\n$OLD_SUMMARY\n\n"
+            REVIEW+="**Обобщение нового текста:**\n$NEW_SUMMARY\n\n"
+
+            if [ -n "$SUMMARY_COMPARISON" ]; then
+              REVIEW+="**Изменения в обобщении текста:**\n$SUMMARY_COMPARISON\n\n"
+            else
+              REVIEW+="**Обобщение текста осталось без изменений.**\n\n"
+            fi
+
+            if [ "$SPELLING_ERRORS" != "[]" ]; then
+              REVIEW+="**Ошибки орфографии (Yandex.Speller):**\n"
+              REVIEW+=$(echo "$SPELLING_ERRORS" | jq -r '.[] | "- Ошибка: " + .word + ", Возможные варианты: " + (.s | join(", "))')
+              REVIEW+="\n\n"
+            else
+              REVIEW+="**Ошибок орфографии не обнаружено.**\n\n"
+            fi
           done
-          
+
+          # Передаём отчёт (REVIEW) на выход шага
           echo "::set-output name=review::$REVIEW"
 
-      # Шаг 7: Комментируем результаты (пример)
+      # 6) Выводим общий отчёт в комментарий
       - name: Leave a comment
         uses: actions/github-script@v6
         with:
