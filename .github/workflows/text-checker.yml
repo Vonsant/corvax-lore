@@ -2,8 +2,6 @@ name: "Text Analyzer"
 
 on:
   pull_request:
-    # Запуск только на Pull Request. 
-    # Если хотите анализировать только при изменениях *.md, оставьте paths.
     paths:
       - '**/*.md'
 
@@ -12,41 +10,38 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      # 1) Клонируем репозиторий с полной историей
+      # Шаг 1: Клонируем репозиторий с полной историей
       - name: Checkout repository
         uses: actions/checkout@v3
         with:
-          # fetch-depth: 0 — чтобы гарантированно иметь локально origin/main
           fetch-depth: 0
 
-      # 2) Устанавливаем jq (для обработки JSON)
+      # Шаг 2: Устанавливаем jq
       - name: Install jq
         run: sudo apt-get install -y jq
 
-      # (Необязательно) Шаг отладки — можно раскомментировать, если нужно посмотреть, какие ветки есть локально
+      # Шаг 3: Отладочная информация (необязательно)
       - name: Debug info
         run: |
           echo ">>> Debug Info:"
           echo "Remotes:"
           git remote -v
-          echo "Branches (локальные + remote):"
+          echo "Branches (local and remote):"
           git branch -a
           echo "PR base ref: ${{ github.event.pull_request.base.ref }}"
           echo "PR head ref: ${{ github.event.pull_request.head.ref }}"
 
-      # 3) Явно подтягиваем базовую ветку (ветку, в которую идёт PR).
-      #    Если PR в main, значит это будет origin/main.
+      # Шаг 4: Подтягиваем базовую ветку
       - name: Fetch base branch
         run: |
           BASE_REF=${{ github.event.pull_request.base.ref }}
           if [ -z "$BASE_REF" ]; then
-            # На всякий случай fallback
             BASE_REF="main"
           fi
           echo ">>> Fetching origin/$BASE_REF"
           git fetch origin $BASE_REF
 
-      # 4) Получаем список изменённых *.md-файлов в сравнении с базовой веткой
+      # Шаг 5: Получаем список изменённых *.md-файлов
       - name: Get changed files
         id: get_changed_files
         run: |
@@ -56,72 +51,64 @@ jobs:
           fi
           echo ">>> Сравниваем с веткой: origin/$BASE_REF"
 
-          # Собираем список изменённых *.md-файлов
-          CHANGED_FILES=$(git diff --name-only origin/$BASE_REF -- '*.md')
+          CHANGED_FILES=$(git diff --name-only origin/$BASE_REF -- '*.md' | iconv -f utf-8 -t utf-8)
           echo "CHANGED_FILES=$CHANGED_FILES" >> $GITHUB_ENV
-
           echo ">>> Найденные изменённые файлы:"
           echo "$CHANGED_FILES"
 
-      # 5) Анализируем изменённые Markdown-файлы
+      # Шаг 6: Анализируем изменённые файлы
       - name: Analyze changed Markdown files
         id: analyze_files
         run: |
           echo "Начинаем анализ изменённых файлов:"
-          
-          # Переменная из предыдущего шага
           CHANGED_FILES="${CHANGED_FILES}"
           echo "Files to analyze: $CHANGED_FILES"
 
-          # Сюда будем складывать результат (текст комментария)
-          REVIEW=""
-
-          # Создадим временную папку, чтобы не затирать файлы
+          # Создадим временную папку для обработки файлов
           mkdir -p temp
 
-          # Перебираем все изменённые файлы
+          REVIEW=""
+
           for FILE in $CHANGED_FILES; do
             echo "Анализ файла: $FILE"
 
-            # Получаем "старую" версию файла из базовой ветки (если файл отсутствовал — получится пусто)
-            git show origin/${{ github.event.pull_request.base.ref }}:$FILE > temp/old_version.md 2>/dev/null || echo "" > temp/old_version.md
+            # Получаем старую версию файла
+            git show origin/${{ github.event.pull_request.base.ref }}:"$FILE" > temp/old_version.md 2>/dev/null || echo "" > temp/old_version.md
 
-            # Новая версия (текущий файл из HEAD PR)
+            # Получаем новую версию файла
             cat "$FILE" > temp/new_version.md 2>/dev/null || echo "" > temp/new_version.md
 
-            # Превращаем содержимое старой/новой версии в JSON-строку
+            # Преобразуем содержимое в корректный JSON
             OLD_TEXT=$(cat temp/old_version.md | jq -Rs .)
             NEW_TEXT=$(cat temp/new_version.md | jq -Rs .)
 
-            # Анализ тональности (старый текст)
+            # Анализируем содержимое через Hugging Face API
             OLD_SENTIMENT=$(curl -s -X POST -H "Content-Type: application/json" \
               -d "{\"inputs\": $OLD_TEXT}" \
               https://api-inference.huggingface.co/models/blanchefort/rubert-base-cased-sentiment)
 
-            # Анализ тональности (новый текст)
             NEW_SENTIMENT=$(curl -s -X POST -H "Content-Type: application/json" \
               -d "{\"inputs\": $NEW_TEXT}" \
               https://api-inference.huggingface.co/models/blanchefort/rubert-base-cased-sentiment)
 
-            # Обобщение (старый текст)
+            # Обобщение текста
             OLD_SUMMARY=$(curl -s -X POST -H "Content-Type: application/json" \
               -d "{\"inputs\": $OLD_TEXT}" \
               https://api-inference.huggingface.co/models/facebook/bart-large-cnn)
 
-            # Обобщение (новый текст)
             NEW_SUMMARY=$(curl -s -X POST -H "Content-Type: application/json" \
               -d "{\"inputs\": $NEW_TEXT}" \
               https://api-inference.huggingface.co/models/facebook/bart-large-cnn)
 
-            # Сравнение кратких обобщений через diff (если отличаются)
+            # Сравнение обобщений
             SUMMARY_COMPARISON=$(diff <(echo "$OLD_SUMMARY" | jq -r '.[0].summary_text') <(echo "$NEW_SUMMARY" | jq -r '.[0].summary_text') || true)
 
-            # Проверка орфографии (новая версия) через Yandex.Speller
+            # Проверка орфографии (новая версия)
             SPELLING_ERRORS=$(curl -s -X POST "https://speller.yandex.net/services/spellservice.json/checkText" \
               -H "Content-Type: application/x-www-form-urlencoded" \
               -d "text=$(cat temp/new_version.md)&lang=ru")
 
-            # Формируем блок отчёта
+            # Формируем отчёт
             REVIEW+="\n### Анализ файла: $FILE\n\n"
             REVIEW+="**Анализ старой версии (Hugging Face):**\n$OLD_SENTIMENT\n\n"
             REVIEW+="**Анализ новой версии (Hugging Face):**\n$NEW_SENTIMENT\n\n"
@@ -143,15 +130,17 @@ jobs:
             fi
           done
 
-          # Передаём отчёт (REVIEW) на выход шага
-          echo "::set-output name=review::$REVIEW"
+          # Сохраняем отчёт в Environment File
+          echo "REVIEW<<EOF" >> $GITHUB_ENV
+          echo "$REVIEW" >> $GITHUB_ENV
+          echo "EOF" >> $GITHUB_ENV
 
-      # 6) Выводим общий отчёт в комментарий
+      # Шаг 7: Добавляем отчёт в комментарий
       - name: Leave a comment
         uses: actions/github-script@v6
         with:
           script: |
-            const review = `{{ steps.analyze_files.outputs.review }}`;
+            const review = process.env.REVIEW;
             github.rest.issues.createComment({
               issue_number: context.payload.pull_request.number,
               owner: context.repo.owner,
