@@ -1,107 +1,121 @@
-name: "Text Analyzer"
+name: "Generate Tags"
 
 on:
   pull_request:
     paths:
-      - '**/*.md'
+      - '00_Правила_оформления/**/*.md'
+      - '01_Вселенная/**/*.md'
+      - '02_Станция/**/*.md'
+      - '03_Государства/**/*.md'
+      - '04_Корпорации/**/*.md'
+      - '05_Организации/**/*.md'
+      - '06_Расы/**/*.md'
+      - '07_Существа/**/*.md'
+      - '08_Технологии/**/*.md'
+      - '09_Вооружение/**/*.md'
+      - '10_Явления/**/*.md'
+      - '11_Товары/**/*.md'
+      - '12_Другое/**/*.md'
+      - '13_Истории/**/*.md'
+      - '14_Повседневность/**/*.md'
 
 jobs:
-  text-analysis:
+  generate-tags:
     runs-on: ubuntu-latest
 
     steps:
-      # Проверка репозитория
+      # Шаг 1: Клонирование репозитория
       - name: Checkout repository
         uses: actions/checkout@v3
+
+      # Шаг 2: Установка Python
+      - name: Setup Python
+        uses: actions/setup-python@v4
         with:
-          fetch-depth: 2  # Загружаем не только последний коммит, чтобы получить предыдущую версию файла
+          python-version: '3.9'
 
-      # Установка jq для обработки JSON
-      - name: Install jq
-        run: sudo apt-get install -y jq
-
-      # Сбор изменений из PR
+      # Шаг 3: Получение измененных файлов
       - name: Get changed files
-        id: get_changed_files
+        id: changed_files
         run: |
-          CHANGED_FILES=$(git diff --name-only origin/${{ github.event.pull_request.base.ref }} -- '*.md')
+          git fetch origin main || git fetch origin HEAD:main
+          CHANGED_FILES=$(git diff --name-only origin/main -- '*.md')
           echo "CHANGED_FILES=$CHANGED_FILES" >> $GITHUB_ENV
 
-      # Анализ текста файлов
-      - name: Analyze changed Markdown files
-        id: analyze_files
+      # Шаг 4: Проверка наличия измененных файлов
+      - name: Check for relevant changes
         run: |
-          echo "Начинаем анализ измененных файлов:"
-          REVIEW=""
-          for FILE in $CHANGED_FILES; do
-            echo "Анализ файла: $FILE"
-            
-            # Получение старой версии файла
-            git show origin/${{ github.event.pull_request.base.ref }}:$FILE > old_version.md
+          if [ -z "${{ env.CHANGED_FILES }}" ]; then
+            echo "No relevant .md file changes detected. Skipping job."
+            exit 0
+          fi
 
-            # Получение новой версии файла
-            cat $FILE > new_version.md
+      # Шаг 5: Установка зависимостей
+      - name: Install dependencies
+        run: |
+          pip install keybert
+          pip install scikit-learn
+          pip install numpy
 
-            # Анализ старой версии текста (Hugging Face Sentiment Analysis)
-            OLD_TEXT=$(cat old_version.md | jq -Rs .)
-            OLD_SENTIMENT=$(curl -s -X POST -H "Content-Type: application/json" \
-              -d "{\"inputs\": $OLD_TEXT}" \
-              https://api-inference.huggingface.co/models/blanchefort/rubert-base-cased-sentiment)
+      # Шаг 6: Генерация тегов
+      - name: Generate tags for Markdown files
+        id: generate_tags
+        run: |
+          python - <<EOF
+          import os
+          from keybert import KeyBERT
+          import json
 
-            # Анализ новой версии текста (Hugging Face Sentiment Analysis)
-            NEW_TEXT=$(cat new_version.md | jq -Rs .)
-            NEW_SENTIMENT=$(curl -s -X POST -H "Content-Type: application/json" \
-              -d "{\"inputs\": $NEW_TEXT}" \
-              https://api-inference.huggingface.co/models/blanchefort/rubert-base-cased-sentiment)
+          # Инициализация модели KeyBERT
+          kw_model = KeyBERT()
 
-            # Обобщение старого текста
-            OLD_SUMMARY=$(curl -s -X POST -H "Content-Type: application/json" \
-              -d "{\"inputs\": $OLD_TEXT}" \
-              https://api-inference.huggingface.co/models/facebook/bart-large-cnn)
+          # Список для хранения тегов по каждому файлу
+          tags_summary = {}
 
-            # Обобщение нового текста
-            NEW_SUMMARY=$(curl -s -X POST -H "Content-Type: application/json" \
-              -d "{\"inputs\": $NEW_TEXT}" \
-              https://api-inference.huggingface.co/models/facebook/bart-large-cnn)
+          # Считываем список измененных файлов из переменной среды
+          changed_files = os.getenv("CHANGED_FILES").split()
 
-            # Сравнение обобщений
-            SUMMARY_COMPARISON=$(diff <(echo "$OLD_SUMMARY" | jq -r '.[0].summary_text') <(echo "$NEW_SUMMARY" | jq -r '.[0].summary_text') || true)
+          # Функция для генерации тегов
+          def generate_tags(text):
+              keywords = kw_model.extract_keywords(text, keyphrase_ngram_range=(1, 2), stop_words='russian', top_n=5)
+              return [kw[0] for kw in keywords]
 
-            # Проверка орфографии с помощью Yandex.Speller
-            SPELLING_ERRORS=$(curl -s -X POST "https://speller.yandex.net/services/spellservice.json/checkText" \
-              -H "Content-Type: application/x-www-form-urlencoded" \
-              -d "text=$(cat new_version.md)&lang=ru")
+          # Обработка всех измененных файлов
+          for filepath in changed_files:
+              # Считываем содержимое файла
+              with open(filepath, "r", encoding="utf-8") as f:
+                  content = f.read()
 
-            # Формирование отчета
-            REVIEW+="\n### Анализ файла: $FILE\n\n"
-            REVIEW+="**Анализ старой версии (Hugging Face):**\n$OLD_SENTIMENT\n\n"
-            REVIEW+="**Анализ новой версии (Hugging Face):**\n$NEW_SENTIMENT\n\n"
-            REVIEW+="**Обобщение старого текста:**\n$OLD_SUMMARY\n\n"
-            REVIEW+="**Обобщение нового текста:**\n$NEW_SUMMARY\n\n"
-            if [ -n "$SUMMARY_COMPARISON" ]; then
-              REVIEW+="**Изменения в обобщении текста:**\n$SUMMARY_COMPARISON\n\n"
-            else
-              REVIEW+="**Обобщение текста осталось без изменений.**\n\n"
-            fi
-            if [ "$SPELLING_ERRORS" != "[]" ]; then
-              REVIEW+="**Ошибки орфографии (Yandex.Speller):**\n"
-              REVIEW+=$(echo "$SPELLING_ERRORS" | jq -r '.[] | "- Ошибка: " + .word + ", Возможные варианты: " + (.s | join(", "))')
-              REVIEW+="\n\n"
-            else
-              REVIEW+="**Ошибок орфографии не обнаружено.**\n\n"
-            fi
-          done
-          echo "::set-output name=review::$REVIEW"
+              # Генерация тегов
+              tags = generate_tags(content)
+              tags_summary[filepath] = tags
 
-      # Вывод ревью в комментарий к PR
-      - name: Leave a comment
+          # Вывод тегов в JSON-файл для использования в следующем шаге
+          with open("tags_summary.json", "w", encoding="utf-8") as f:
+              json.dump(tags_summary, f, ensure_ascii=False, indent=2)
+          EOF
+
+      # Шаг 7: Сохранение результатов
+      - name: Upload generated tags
+        id: upload_tags
+        run: |
+          TAGS=$(cat tags_summary.json | jq -c .)
+          echo "TAGS=$TAGS" >> $GITHUB_ENV
+
+      # Шаг 8: Добавление комментария к PR
+      - name: Comment on PR with generated tags
         uses: actions/github-script@v6
         with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
           script: |
-            const review = `{{ steps.analyze_files.outputs.review }}`;
+            const tags = JSON.parse(process.env.TAGS);
+            let body = "### Автоматически сгенерированные теги для измененных файлов:\n\n";
+            for (const [file, tagsList] of Object.entries(tags)) {
+              body += `**${file}**: ${tagsList.length > 0 ? tagsList.join(", ") : "нет предложений"}\n\n`;
+            }
             github.rest.issues.createComment({
               issue_number: context.payload.pull_request.number,
               owner: context.repo.owner,
               repo: context.repo.repo,
-              body: review
+              body: body
             });

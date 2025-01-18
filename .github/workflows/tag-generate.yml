@@ -3,7 +3,21 @@ name: "Generate Tags"
 on:
   pull_request:
     paths:
-      - '**/*.md'
+      - '00_Правила_оформления/**/*.md'
+      - '01_Вселенная/**/*.md'
+      - '02_Станция/**/*.md'
+      - '03_Государства/**/*.md'
+      - '04_Корпорации/**/*.md'
+      - '05_Организации/**/*.md'
+      - '06_Расы/**/*.md'
+      - '07_Существа/**/*.md'
+      - '08_Технологии/**/*.md'
+      - '09_Вооружение/**/*.md'
+      - '10_Явления/**/*.md'
+      - '11_Товары/**/*.md'
+      - '12_Другое/**/*.md'
+      - '13_Истории/**/*.md'
+      - '14_Повседневность/**/*.md'
 
 jobs:
   generate-tags:
@@ -70,7 +84,8 @@ jobs:
       - name: Upload generated tags
         id: upload_tags
         run: |
-          echo "TAGS=$(cat tags_summary.json)" >> $GITHUB_ENV
+          TAGS=$(cat tags_summary.json | jq -c .)
+          echo "TAGS=$TAGS" >> $GITHUB_ENV
 
       # Шаг 6: Добавление комментария к PR
       - name: Comment on PR with generated tags
