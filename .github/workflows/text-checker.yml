@@ -24,8 +24,12 @@ jobs:
       - name: Get changed files
         id: get_changed_files
         run: |
+          # Убедимся, что базовая ветка извлечена
+          git fetch origin ${{ github.event.pull_request.base.ref }}:refs/remotes/origin/${{ github.event.pull_request.base.ref }}
+          # Сбор измененных файлов
           CHANGED_FILES=$(git diff --name-only origin/${{ github.event.pull_request.base.ref }} -- '*.md')
           echo "CHANGED_FILES=$CHANGED_FILES" >> $GITHUB_ENV
+
       # Анализ текста файлов
       - name: Analyze changed Markdown files
         id: analyze_files
@@ -83,6 +87,7 @@ jobs:
             fi
           done
           echo "::set-output name=review::$REVIEW"
+
       # Вывод ревью в комментарий к PR
       - name: Leave a comment
         uses: actions/github-script@v6
