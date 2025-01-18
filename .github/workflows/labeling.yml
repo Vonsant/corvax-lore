@@ -3,7 +3,21 @@ name: "Automatic Labeling"
 on:
   pull_request:
     paths:
-      - '**/*'
+      - '00_Правила_оформления/**/*.md'
+      - '01_Вселенная/**/*.md'
+      - '02_Станция/**/*.md'
+      - '03_Государства/**/*.md'
+      - '04_Корпорации/**/*.md'
+      - '05_Организации/**/*.md'
+      - '06_Расы/**/*.md'
+      - '07_Существа/**/*.md'
+      - '08_Технологии/**/*.md'
+      - '09_Вооружение/**/*.md'
+      - '10_Явления/**/*.md'
+      - '11_Товары/**/*.md'
+      - '12_Другое/**/*.md'
+      - '13_Истории/**/*.md'
+      - '14_Повседневность/**/*.md'
 
 jobs:
   label-pr:
@@ -14,12 +28,18 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v3
 
+      # Ensure the base branch is fetched
+      - name: Fetch all branches
+        run: |
+          git fetch --prune --unshallow
+
       # Determine changed files and apply labels
       - name: Label PR based on folder
         id: label_pr
         run: |
           echo "Determining changed files..."
-          CHANGED_FILES=$(git diff --name-only origin/${{ github.event.pull_request.base.ref }}..HEAD)
+          BASE_BRANCH=${{ github.event.pull_request.base.ref }}
+          CHANGED_FILES=$(git diff --name-only origin/${BASE_BRANCH}..HEAD)
 
           # Initialize an array to hold labels
           LABELS=()
@@ -27,21 +47,21 @@ jobs:
           # Check each file and determine its folder
           for FILE in $CHANGED_FILES; do
             case $FILE in
-              00_*/*) LABELS+=("Правила") ;;
-              01_*/*) LABELS+=("Вселенная") ;;
-              02_*/*) LABELS+=("Станция") ;;
-              03_*/*) LABELS+=("Государства") ;;
-              04_*/*) LABELS+=("Корпорации") ;;
-              05_*/*) LABELS+=("Организации") ;;
-              06_*/*) LABELS+=("Расы") ;;
-              07_*/*) LABELS+=("Существа") ;;
-              08_*/*) LABELS+=("Технологии") ;;
-              09_*/*) LABELS+=("Вооружение") ;;
-              10_*/*) LABELS+=("Явления") ;;
-              11_*/*) LABELS+=("Товары") ;;
-              12_*/*) LABELS+=("Другое") ;;
-              13_*/*) LABELS+=("Истории") ;;
-              14_*/*) LABELS+=("Повседневность") ;;
+              00_Правила_оформления/*.md) LABELS+=("Правила") ;;
+              01_Вселенная/*.md) LABELS+=("Вселенная") ;;
+              02_Станция/*.md) LABELS+=("Станция") ;;
+              03_Государства/*.md) LABELS+=("Государства") ;;
+              04_Корпорации/*.md) LABELS+=("Корпорации") ;;
+              05_Организации/*.md) LABELS+=("Организации") ;;
+              06_Расы/*.md) LABELS+=("Расы") ;;
+              07_Существа/*.md) LABELS+=("Существа") ;;
+              08_Технологии/*.md) LABELS+=("Технологии") ;;
+              09_Вооружение/*.md) LABELS+=("Вооружение") ;;
+              10_Явления/*.md) LABELS+=("Явления") ;;
+              11_Товары/*.md) LABELS+=("Товары") ;;
+              12_Другое/*.md) LABELS+=("Другое") ;;
+              13_Истории/*.md) LABELS+=("Истории") ;;
+              14_Повседневность/*.md) LABELS+=("Повседневность") ;;
             esac
           done
 
