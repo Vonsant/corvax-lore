@@ -42,18 +42,17 @@ jobs:
       - name: Analyze changes
         id: analyze_changes
         run: |
-          python - <<EOF
+          python <<EOF
           import os
           import re
           import json
           from subprocess import check_output
 
-          # Функция для подсчета слов, символов, символов без пробелов и знаков препинания
           def analyze_text(text):
               words = len(re.findall(r'\\b\\w+\\b', text))
               chars = len(text)
               chars_no_spaces = len(text.replace(" ", ""))
-              punctuation = len(re.findall(r'[!\"#$%&\'()*+,-./:;<=>?@[\\]^_`{|}~]', text))
+              punctuation = len(re.findall(r'[!"#$%&\'()*+,-./:;<=>?@[\\\\]^_`{|}~]', text))
               return {
                   "words": words,
                   "chars": chars,
@@ -61,52 +60,46 @@ jobs:
                   "punctuation": punctuation
               }
 
-          # Получаем измененные строки через git diff
-          base_branch = os.environ['GITHUB_BASE_REF']
+          base_branch = os.getenv('GITHUB_BASE_REF', 'main')
           diff_output = check_output(["git", "diff", "--unified=0", f"origin/{base_branch}"], encoding="utf-8")
           file_changes = {}
 
-          # Обработка изменений
           current_file = None
           for line in diff_output.splitlines():
               if line.startswith("+++ b/"):
                   current_file = line[6:]  # Имя файла
                   file_changes[current_file] = {"added_lines": "", "removed_lines": "", "stats": {}}
-              elif line.startswith("+") and not line.startswith("+++"):
+              elif line.startswith("+") and not line.startswith("+++") and current_file:
                   file_changes[current_file]["added_lines"] += line[1:].strip() + "\n"
-              elif line.startswith("-") and not line.startswith("---"):
+              elif line.startswith("-") and not line.startswith("---") and current_file:
                   file_changes[current_file]["removed_lines"] += line[1:].strip() + "\n"
 
-          # Подсчитываем статистику для каждого файла
           total_stats = {"added": {"words": 0, "chars": 0, "chars_no_spaces": 0, "punctuation": 0},
                          "removed": {"words": 0, "chars": 0, "chars_no_spaces": 0, "punctuation": 0},
                          "final": {"words": 0, "chars": 0, "chars_no_spaces": 0, "punctuation": 0}}
 
           for file, changes in file_changes.items():
-              # Добавленные строки
               added_stats = analyze_text(changes["added_lines"])
-              # Удаленные строки
               removed_stats = analyze_text(changes["removed_lines"])
 
-              # Итоговая статистика файла после изменений
-              with open(file, "r", encoding="utf-8") as f:
-                  full_text = f.read()
-              final_stats = analyze_text(full_text)
+              try:
+                  with open(file, "r", encoding="utf-8") as f:
+                      full_text = f.read()
+                  final_stats = analyze_text(full_text)
+              except FileNotFoundError:
+                  final_stats = {"words": 0, "chars": 0, "chars_no_spaces": 0, "punctuation": 0}
 
-              # Сохраняем статистику
               file_changes[file]["stats"] = {
                   "added": added_stats,
                   "removed": removed_stats,
                   "final": final_stats
               }
 
-              # Суммируем итоговую статистику для репозитория
               for key in total_stats["added"]:
                   total_stats["added"][key] += added_stats[key]
                   total_stats["removed"][key] += removed_stats[key]
                   total_stats["final"][key] += final_stats[key]
 
-          # Сохраняем результаты
           results = {
               "total_files": len(file_changes),
               "file_changes": file_changes,
