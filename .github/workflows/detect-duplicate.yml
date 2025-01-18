@@ -3,7 +3,21 @@ name: "Detect Duplicates"
 on:
   pull_request:
     paths:
-      - '**/*.md'
+      - '00_Правила_оформления/**/*.md'
+      - '01_Вселенная/**/*.md'
+      - '02_Станция/**/*.md'
+      - '03_Государства/**/*.md'
+      - '04_Корпорации/**/*.md'
+      - '05_Организации/**/*.md'
+      - '06_Расы/**/*.md'
+      - '07_Существа/**/*.md'
+      - '08_Технологии/**/*.md'
+      - '09_Вооружение/**/*.md'
+      - '10_Явления/**/*.md'
+      - '11_Товары/**/*.md'
+      - '12_Другое/**/*.md'
+      - '13_Истории/**/*.md'
+      - '14_Повседневность/**/*.md'
 
 jobs:
   duplicate-check:
@@ -28,7 +42,8 @@ jobs:
       - name: Get changed files
         id: get_changed_files
         run: |
-          CHANGED_FILES=$(git diff --name-only origin/${{ github.event.pull_request.base.ref }}..HEAD -- '*.md')
+          BASE_BRANCH=${{ github.event.pull_request.base.ref }}
+          CHANGED_FILES=$(git diff --name-only origin/${BASE_BRANCH}..HEAD -- '**/*.md')
           echo "CHANGED_FILES=$CHANGED_FILES" >> $GITHUB_ENV
 
       # Шаг 5: Проверка на дубликаты
@@ -46,7 +61,7 @@ jobs:
               print("No changed files detected.")
               exit(0)
 
-          # Собираем все файлы в репозитории
+          # Собираем все файлы в указанных папках
           all_files = []
           for root, _, filenames in os.walk("."):
               for filename in filenames:
