@@ -1,0 +1,63 @@
+name: "Markdown Linter"
+
+on:
+  pull_request:
+    paths:
+      - '00_Правила_оформления/**/*.md'
+      - '01_Вселенная/**/*.md'
+      - '02_Станция/**/*.md'
+      - '03_Государства/**/*.md'
+      - '04_Корпорации/**/*.md'
+      - '05_Организации/**/*.md'
+      - '06_Расы/**/*.md'
+      - '07_Существа/**/*.md'
+      - '08_Технологии/**/*.md'
+      - '09_Вооружение/**/*.md'
+      - '10_Явления/**/*.md'
+      - '11_Товары/**/*.md'
+      - '12_Другое/**/*.md'
+      - '13_Истории/**/*.md'
+      - '14_Повседневность/**/*.md'
+
+jobs:
+  markdown-lint:
+    runs-on: ubuntu-latest
+    steps:
+      # Проверка репозитория
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      # Установка MarkdownLint
+      - name: Установка MarkdownLint
+        run: npm install -g markdownlint-cli2
+
+      # Запуск линтинга
+      - name: Проверка MarkdownLint
+        id: markdown-lint
+        run: markdownlint-cli2 "**/*.md" || echo "Линт завершен с ошибками."
+
+      # Отправка комментариев к PR
+      - name: Комментарий к PR
+        if: failure()
+        uses: actions/github-script@v6
+        with:
+          script: |
+            const fs = require('fs');
+            const output = fs.readFileSync('./markdownlint-cli2-output.txt', 'utf8');
+            const lines = output.split('\n').filter(line => line.trim() !== '');
+            const errors = lines.map(line => `- ${line}`).join('\n');
+
+            const issueComment = `
+              ### Отчет MarkdownLint
+              Обнаружены следующие проблемы в ваших Markdown-файлах:
+              ${errors}
+
+              Пожалуйста, исправьте их перед слиянием.
+            `;
+            
+            github.rest.issues.createComment({
+              issue_number: context.payload.pull_request.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: issueComment,
+            });

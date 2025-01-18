@@ -1,0 +1,121 @@
+name: "Generate Tags"
+
+on:
+  pull_request:
+    paths:
+      - '00_Правила_оформления/**/*.md'
+      - '01_Вселенная/**/*.md'
+      - '02_Станция/**/*.md'
+      - '03_Государства/**/*.md'
+      - '04_Корпорации/**/*.md'
+      - '05_Организации/**/*.md'
+      - '06_Расы/**/*.md'
+      - '07_Существа/**/*.md'
+      - '08_Технологии/**/*.md'
+      - '09_Вооружение/**/*.md'
+      - '10_Явления/**/*.md'
+      - '11_Товары/**/*.md'
+      - '12_Другое/**/*.md'
+      - '13_Истории/**/*.md'
+      - '14_Повседневность/**/*.md'
+
+jobs:
+  generate-tags:
+    runs-on: ubuntu-latest
+
+    steps:
+      # Шаг 1: Клонирование репозитория
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      # Шаг 2: Установка Python
+      - name: Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.9'
+
+      # Шаг 3: Получение измененных файлов
+      - name: Get changed files
+        id: changed_files
+        run: |
+          git fetch origin main || git fetch origin HEAD:main
+          CHANGED_FILES=$(git diff --name-only origin/main -- '*.md')
+          echo "CHANGED_FILES=$CHANGED_FILES" >> $GITHUB_ENV
+
+      # Шаг 4: Проверка наличия измененных файлов
+      - name: Check for relevant changes
+        run: |
+          if [ -z "${{ env.CHANGED_FILES }}" ]; then
+            echo "No relevant .md file changes detected. Skipping job."
+            exit 0
+          fi
+
+      # Шаг 5: Установка зависимостей
+      - name: Install dependencies
+        run: |
+          pip install keybert
+          pip install scikit-learn
+          pip install numpy
+
+      # Шаг 6: Генерация тегов
+      - name: Generate tags for Markdown files
+        id: generate_tags
+        run: |
+          python - <<EOF
+          import os
+          from keybert import KeyBERT
+          import json
+
+          # Инициализация модели KeyBERT
+          kw_model = KeyBERT()
+
+          # Список для хранения тегов по каждому файлу
+          tags_summary = {}
+
+          # Считываем список измененных файлов из переменной среды
+          changed_files = os.getenv("CHANGED_FILES").split()
+
+          # Функция для генерации тегов
+          def generate_tags(text):
+              keywords = kw_model.extract_keywords(text, keyphrase_ngram_range=(1, 2), stop_words='russian', top_n=5)
+              return [kw[0] for kw in keywords]
+
+          # Обработка всех измененных файлов
+          for filepath in changed_files:
+              # Считываем содержимое файла
+              with open(filepath, "r", encoding="utf-8") as f:
+                  content = f.read()
+
+              # Генерация тегов
+              tags = generate_tags(content)
+              tags_summary[filepath] = tags
+
+          # Вывод тегов в JSON-файл для использования в следующем шаге
+          with open("tags_summary.json", "w", encoding="utf-8") as f:
+              json.dump(tags_summary, f, ensure_ascii=False, indent=2)
+          EOF
+
+      # Шаг 7: Сохранение результатов
+      - name: Upload generated tags
+        id: upload_tags
+        run: |
+          TAGS=$(cat tags_summary.json | jq -c .)
+          echo "TAGS=$TAGS" >> $GITHUB_ENV
+
+      # Шаг 8: Добавление комментария к PR
+      - name: Comment on PR with generated tags
+        uses: actions/github-script@v6
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const tags = JSON.parse(process.env.TAGS);
+            let body = "### Автоматически сгенерированные теги для измененных файлов:\n\n";
+            for (const [file, tagsList] of Object.entries(tags)) {
+              body += `**${file}**: ${tagsList.length > 0 ? tagsList.join(", ") : "нет предложений"}\n\n`;
+            }
+            github.rest.issues.createComment({
+              issue_number: context.payload.pull_request.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: body
+            });

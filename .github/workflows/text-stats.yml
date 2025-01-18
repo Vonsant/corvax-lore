@@ -1,0 +1,86 @@
+name: "Detailed File Statistics"
+
+on:
+  pull_request:
+    paths:
+      - '00_Правила_оформления/**/*.md'
+      - '01_Вселенная/**/*.md'
+      - '02_Станция/**/*.md'
+      - '03_Государства/**/*.md'
+      - '04_Корпорации/**/*.md'
+      - '05_Организации/**/*.md'
+      - '06_Расы/**/*.md'
+      - '07_Существа/**/*.md'
+      - '08_Технологии/**/*.md'
+      - '09_Вооружение/**/*.md'
+      - '10_Явления/**/*.md'
+      - '11_Товары/**/*.md'
+      - '12_Другое/**/*.md'
+      - '13_Истории/**/*.md'
+      - '14_Повседневность/**/*.md'
+
+jobs:
+  pr-statistics:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+
+      - name: Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.9'
+
+      - name: Install dependencies
+        run: pip install regex
+
+      - name: Run analysis script
+        run: python .scripts/text-analyze.py
+
+      - name: Comment on PR with statistics
+        uses: actions/github-script@v6
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const fs = require('fs');
+            const stats = JSON.parse(fs.readFileSync('statistics.json', 'utf-8'));
+
+            let body = "### Статистика изменений в Pull Request:\n\n";
+            body += `- **Общее количество измененных файлов:** ${stats.total_files}\n\n`;
+
+            body += `### Детализация по файлам:\n`;
+            for (const [file, data] of Object.entries(stats.file_changes)) {
+              body += `- **${file}**:\n`;
+              body += `  - Убрано слов: ${data.stats.removed.words}\n`;
+              body += `  - Убрано символов: ${data.stats.removed.chars}\n`;
+              body += `  - Убрано символов без пробелов: ${data.stats.removed.chars_no_spaces}\n`;
+              body += `  - Добавлено слов: ${data.stats.added.words}\n`;
+              body += `  - Добавлено символов: ${data.stats.added.chars}\n`;
+              body += `  - Добавлено символов без пробелов: ${data.stats.added.chars_no_spaces}\n`;
+              body += `  - Итоговое количество слов: ${data.stats.final.words}\n`;
+              body += `  - Итоговое количество символов: ${data.stats.final.chars}\n`;
+              body += `  - Итоговое количество символов без пробелов: ${data.stats.final.chars_no_spaces}\n\n`;
+            }
+
+            if (stats.total_files > 1) {
+              body += `### Итоговая текстовая статистика для всего Pull Request:\n`;
+              body += `- **Всего убрано слов:** ${stats.total_stats.removed.words}\n`;
+              body += `- **Всего убрано символов:** ${stats.total_stats.removed.chars}\n`;
+              body += `- **Всего убрано символов без пробелов:** ${stats.total_stats.removed.chars_no_spaces}\n`;
+              body += `- **Всего добавлено слов:** ${stats.total_stats.added.words}\n`;
+              body += `- **Всего добавлено символов:** ${stats.total_stats.added.chars}\n`;
+              body += `- **Всего добавлено символов без пробелов:** ${stats.total_stats.added.chars_no_spaces}\n`;
+              body += `- **Итоговое количество слов:** ${stats.total_stats.final.words}\n`;
+              body += `- **Итоговое количество символов:** ${stats.total_stats.final.chars}\n`;
+              body += `- **Итоговое количество символов без пробелов:** ${stats.total_stats.final.chars_no_spaces}\n`;
+            }
+
+            github.rest.issues.createComment({
+              issue_number: context.payload.pull_request.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: body
+            });

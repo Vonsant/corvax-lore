@@ -1,0 +1,79 @@
+name: "Automatic Labeling"
+
+on:
+  pull_request:
+    paths:
+      - '00_Правила_оформления/**/*.md'
+      - '01_Вселенная/**/*.md'
+      - '02_Станция/**/*.md'
+      - '03_Государства/**/*.md'
+      - '04_Корпорации/**/*.md'
+      - '05_Организации/**/*.md'
+      - '06_Расы/**/*.md'
+      - '07_Существа/**/*.md'
+      - '08_Технологии/**/*.md'
+      - '09_Вооружение/**/*.md'
+      - '10_Явления/**/*.md'
+      - '11_Товары/**/*.md'
+      - '12_Другое/**/*.md'
+      - '13_Истории/**/*.md'
+      - '14_Повседневность/**/*.md'
+
+jobs:
+  label-pr:
+    runs-on: ubuntu-latest
+
+    steps:
+      # Checkout the repository to access the changed files
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      # Ensure the base branch is fetched
+      - name: Fetch all branches
+        run: |
+          git fetch --prune --unshallow
+
+      # Determine changed files and apply labels
+      - name: Label PR based on folder
+        id: label_pr
+        run: |
+          echo "Determining changed files..."
+          BASE_BRANCH=${{ github.event.pull_request.base.ref }}
+          CHANGED_FILES=$(git diff --name-only origin/${BASE_BRANCH}..HEAD)
+
+          # Initialize an array to hold labels
+          LABELS=()
+
+          # Check each file and determine its folder
+          for FILE in $CHANGED_FILES; do
+            case $FILE in
+              00_Правила_оформления/*.md) LABELS+=("Правила") ;;
+              01_Вселенная/*.md) LABELS+=("Вселенная") ;;
+              02_Станция/*.md) LABELS+=("Станция") ;;
+              03_Государства/*.md) LABELS+=("Государства") ;;
+              04_Корпорации/*.md) LABELS+=("Корпорации") ;;
+              05_Организации/*.md) LABELS+=("Организации") ;;
+              06_Расы/*.md) LABELS+=("Расы") ;;
+              07_Существа/*.md) LABELS+=("Существа") ;;
+              08_Технологии/*.md) LABELS+=("Технологии") ;;
+              09_Вооружение/*.md) LABELS+=("Вооружение") ;;
+              10_Явления/*.md) LABELS+=("Явления") ;;
+              11_Товары/*.md) LABELS+=("Товары") ;;
+              12_Другое/*.md) LABELS+=("Другое") ;;
+              13_Истории/*.md) LABELS+=("Истории") ;;
+              14_Повседневность/*.md) LABELS+=("Повседневность") ;;
+            esac
+          done
+
+          # Remove duplicate labels
+          UNIQUE_LABELS=$(echo "${LABELS[@]}" | tr ' ' '\n' | sort -u | tr '\n' ',' | sed 's/,$//')
+
+          echo "Unique labels determined: $UNIQUE_LABELS"
+          echo "::set-output name=labels::$UNIQUE_LABELS"
+
+      # Apply labels to the PR
+      - name: Add labels to PR
+        uses: actions-ecosystem/action-add-labels@v1
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          labels: ${{ steps.label_pr.outputs.labels }}

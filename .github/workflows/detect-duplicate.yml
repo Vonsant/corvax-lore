@@ -1,0 +1,125 @@
+name: "Detect Duplicates"
+
+on:
+  pull_request:
+    paths:
+      - '00_Правила_оформления/**/*.md'
+      - '01_Вселенная/**/*.md'
+      - '02_Станция/**/*.md'
+      - '03_Государства/**/*.md'
+      - '04_Корпорации/**/*.md'
+      - '05_Организации/**/*.md'
+      - '06_Расы/**/*.md'
+      - '07_Существа/**/*.md'
+      - '08_Технологии/**/*.md'
+      - '09_Вооружение/**/*.md'
+      - '10_Явления/**/*.md'
+      - '11_Товары/**/*.md'
+      - '12_Другое/**/*.md'
+      - '13_Истории/**/*.md'
+      - '14_Повседневность/**/*.md'
+
+jobs:
+  duplicate-check:
+    runs-on: ubuntu-latest
+
+    steps:
+      # Шаг 1: Клонирование репозитория
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      # Шаг 2: Установка Python
+      - name: Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.9'
+
+      # Шаг 3: Установка зависимостей
+      - name: Install dependencies
+        run: pip install fuzzywuzzy python-Levenshtein
+
+      # Шаг 4: Определение измененных файлов
+      - name: Get changed files
+        id: get_changed_files
+        run: |
+          BASE_BRANCH=${{ github.event.pull_request.base.ref }}
+          CHANGED_FILES=$(git diff --name-only origin/${BASE_BRANCH}..HEAD -- '**/*.md')
+          echo "CHANGED_FILES=$CHANGED_FILES" >> $GITHUB_ENV
+
+      # Шаг 5: Проверка на дубликаты
+      - name: Check for duplicates
+        id: duplicate_check
+        run: |
+          python - <<EOF
+          import os
+          from fuzzywuzzy import fuzz
+          import json
+
+          # Получение списка измененных файлов из переменной среды
+          changed_files = os.getenv("CHANGED_FILES", "").split()
+          if not changed_files:
+              print("No changed files detected.")
+              exit(0)
+
+          # Собираем все файлы в указанных папках
+          all_files = []
+          for root, _, filenames in os.walk("."):
+              for filename in filenames:
+                  if filename.endswith(".md"):
+                      filepath = os.path.join(root, filename)
+                      all_files.append(filepath)
+
+          duplicates = []  # Список найденных дубликатов
+
+          # Сравнение текста измененных файлов со всем репозиторием
+          for changed_file in changed_files:
+              with open(changed_file, 'r', encoding='utf-8') as cf:
+                  changed_text = cf.read()
+
+              for repo_file in all_files:
+                  if repo_file == changed_file:
+                      continue  # Пропускаем сравнение файла с самим собой
+
+                  with open(repo_file, 'r', encoding='utf-8') as rf:
+                      repo_text = rf.read()
+                      similarity = fuzz.ratio(changed_text, repo_text)
+                      if similarity > 85:  # Порог схожести
+                          duplicates.append({
+                              "changed_file": changed_file,
+                              "repo_file": repo_file,
+                              "similarity": similarity
+                          })
+
+          # Сохраняем результаты в файл
+          with open("duplicates.json", "w", encoding="utf-8") as f:
+              json.dump(duplicates, f, ensure_ascii=False, indent=2)
+          EOF
+
+      # Шаг 6: Добавление комментария к PR
+      - name: Comment on PR with duplicate results
+        uses: actions/github-script@v6
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const fs = require('fs');
+            const duplicates = JSON.parse(fs.readFileSync('duplicates.json', 'utf-8'));
+
+            if (duplicates.length === 0) {
+              github.rest.issues.createComment({
+                issue_number: context.payload.pull_request.number,
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                body: "✅ **Дубликаты не найдены.**"
+              });
+            } else {
+              let body = "⚠️ **Найдены возможные дубликаты текста из измененных файлов с другими файлами в репозитории:**\n\n";
+              duplicates.forEach(dup => {
+                body += `- **${dup.changed_file}** и **${dup.repo_file}** имеют схожесть **${dup.similarity}%**\n`;
+              });
+              github.rest.issues.createComment({
+                issue_number: context.payload.pull_request.number,
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                body: body
+              });
+            }
