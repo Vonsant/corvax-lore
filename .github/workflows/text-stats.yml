@@ -51,16 +51,10 @@ jobs:
               words = len(re.findall(r"\b\w+\b", text))
               chars = len(text)
               chars_no_spaces = len(text.replace(" ", ""))
-
-              # Если необходимо сохранить backtick, его нужно экранировать,
-              # но проще всего убрать или заменить на что-то другое, если он не критичен
-              punctuation = len(re.findall(r"[!\"#$%&\(\)*+,\-./:;<=>?@\[\\\]^_`{|}~]", text))
-
               return {
                   "words": words,
                   "chars": chars,
-                  "chars_no_spaces": chars_no_spaces,
-                  "punctuation": punctuation
+                  "chars_no_spaces": chars_no_spaces
               }
 
           def main():
@@ -82,9 +76,9 @@ jobs:
                               file_changes[current_file]["removed_lines"] += line[1:] + "\n"
 
                   total_stats = {
-                      "added": {"words": 0, "chars": 0, "chars_no_spaces": 0, "punctuation": 0},
-                      "removed": {"words": 0, "chars": 0, "chars_no_spaces": 0, "punctuation": 0},
-                      "final": {"words": 0, "chars": 0, "chars_no_spaces": 0, "punctuation": 0}
+                      "added": {"words": 0, "chars": 0, "chars_no_spaces": 0},
+                      "removed": {"words": 0, "chars": 0, "chars_no_spaces": 0},
+                      "final": {"words": 0, "chars": 0, "chars_no_spaces": 0}
                   }
 
                   for file_path, changes in list(file_changes.items()):
@@ -98,10 +92,10 @@ jobs:
                               final_stats = analyze_text(full_text)
                           except FileNotFoundError:
                               print(f"Warning: File not found: {file_path}")
-                              final_stats = {"words": 0, "chars": 0, "chars_no_spaces": 0, "punctuation": 0}
+                              final_stats = {"words": 0, "chars": 0, "chars_no_spaces": 0}
                           except Exception as e:
                               print(f"Warning: Error reading file {file_path}: {str(e)}")
-                              final_stats = {"words": 0, "chars": 0, "chars_no_spaces": 0, "punctuation": 0}
+                              final_stats = {"words": 0, "chars": 0, "chars_no_spaces": 0}
 
                           file_changes[file_path]["stats"] = {
                               "added": added_stats,
@@ -155,15 +149,12 @@ jobs:
               body += `  - Убрано слов: ${data.stats.removed.words}\n`;
               body += `  - Убрано символов: ${data.stats.removed.chars}\n`;
               body += `  - Убрано символов без пробелов: ${data.stats.removed.chars_no_spaces}\n`;
-              body += `  - Убрано знаков препинания: ${data.stats.removed.punctuation}\n`;
               body += `  - Добавлено слов: ${data.stats.added.words}\n`;
               body += `  - Добавлено символов: ${data.stats.added.chars}\n`;
               body += `  - Добавлено символов без пробелов: ${data.stats.added.chars_no_spaces}\n`;
-              body += `  - Добавлено знаков препинания: ${data.stats.added.punctuation}\n`;
               body += `  - Итоговое количество слов: ${data.stats.final.words}\n`;
               body += `  - Итоговое количество символов: ${data.stats.final.chars}\n`;
-              body += `  - Итоговое количество символов без пробелов: ${data.stats.final.chars_no_spaces}\n`;
-              body += `  - Итоговое количество знаков препинания: ${data.stats.final.punctuation}\n\n`;
+              body += `  - Итоговое количество символов без пробелов: ${data.stats.final.chars_no_spaces}\n\n`;
             }
 
             if (stats.total_files > 1) {
@@ -171,15 +162,12 @@ jobs:
               body += `- **Всего убрано слов:** ${stats.total_stats.removed.words}\n`;
               body += `- **Всего убрано символов:** ${stats.total_stats.removed.chars}\n`;
               body += `- **Всего убрано символов без пробелов:** ${stats.total_stats.removed.chars_no_spaces}\n`;
-              body += `- **Всего убрано знаков препинания:** ${stats.total_stats.removed.punctuation}\n`;
               body += `- **Всего добавлено слов:** ${stats.total_stats.added.words}\n`;
               body += `- **Всего добавлено символов:** ${stats.total_stats.added.chars}\n`;
               body += `- **Всего добавлено символов без пробелов:** ${stats.total_stats.added.chars_no_spaces}\n`;
-              body += `- **Всего добавлено знаков препинания:** ${stats.total_stats.added.punctuation}\n`;
               body += `- **Итоговое количество слов:** ${stats.total_stats.final.words}\n`;
               body += `- **Итоговое количество символов:** ${stats.total_stats.final.chars}\n`;
               body += `- **Итоговое количество символов без пробелов:** ${stats.total_stats.final.chars_no_spaces}\n`;
-              body += `- **Итоговое количество знаков препинания:** ${stats.total_stats.final.punctuation}\n`;
             }
 
             github.rest.issues.createComment({
