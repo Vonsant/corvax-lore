@@ -65,18 +65,19 @@ jobs:
             # Hugging Face токен
             HF_TOKEN="${{ secrets.HUGGINGFACE_TOKEN }}"
 
-            # Анализ через Hugging Face API
+            # Анализируем содержимое через Hugging Face API
             OLD_SENTIMENT=$(curl -s -X POST -H "Authorization: Bearer $HF_TOKEN" -H "Content-Type: application/json" \
               -d "{\"inputs\": $OLD_TEXT}" https://api-inference.huggingface.co/models/blanchefort/rubert-base-cased-sentiment)
 
             NEW_SENTIMENT=$(curl -s -X POST -H "Authorization: Bearer $HF_TOKEN" -H "Content-Type: application/json" \
               -d "{\"inputs\": $NEW_TEXT}" https://api-inference.huggingface.co/models/blanchefort/rubert-base-cased-sentiment)
 
+            # Обобщение с использованием подходящей модели для русского языка
             OLD_SUMMARY=$(curl -s -X POST -H "Authorization: Bearer $HF_TOKEN" -H "Content-Type: application/json" \
-              -d "{\"inputs\": $OLD_TEXT}" https://api-inference.huggingface.co/models/facebook/bart-large-cnn)
+              -d "{\"inputs\": $OLD_TEXT}" https://api-inference.huggingface.co/models/IlyaGusev/rugpt3medium_sum)
 
             NEW_SUMMARY=$(curl -s -X POST -H "Authorization: Bearer $HF_TOKEN" -H "Content-Type: application/json" \
-              -d "{\"inputs\": $NEW_TEXT}" https://api-inference.huggingface.co/models/facebook/bart-large-cnn)
+              -d "{\"inputs\": $NEW_TEXT}" https://api-inference.huggingface.co/models/IlyaGusev/rugpt3medium_sum)
 
             # Сравнение обобщений
             SUMMARY_COMPARISON=$(diff <(echo "$OLD_SUMMARY" | jq -r '.[0].summary_text') <(echo "$NEW_SUMMARY" | jq -r '.[0].summary_text') || true)
@@ -85,8 +86,8 @@ jobs:
             REVIEW+="\n### Анализ файла: ${FILE}\n\n"
             REVIEW+="**Анализ старой версии (Hugging Face):**\n\`\`\`\n$OLD_SENTIMENT\n\`\`\`\n\n"
             REVIEW+="**Анализ новой версии (Hugging Face):**\n\`\`\`\n$NEW_SENTIMENT\n\`\`\`\n\n"
-            REVIEW+="**Обобщение старого текста:**\n\`\`\`\n$OLD_SUMMARY\n\`\`\`\n\n"
-            REVIEW+="**Обобщение нового текста:**\n\`\`\`\n$NEW_SUMMARY\n\`\`\`\n\n"
+            REVIEW+="**Обобщение старого текста:**\n\`\`\`\n$(echo "$OLD_SUMMARY" | jq -r '.[0].summary_text')\n\`\`\`\n\n"
+            REVIEW+="**Обобщение нового текста:**\n\`\`\`\n$(echo "$NEW_SUMMARY" | jq -r '.[0].summary_text')\n\`\`\`\n\n"
 
             if [ -n "$SUMMARY_COMPARISON" ]; then
               REVIEW+="**Изменения в обобщении текста:**\n\`\`\`\n$SUMMARY_COMPARISON\n\`\`\`\n\n"
