@@ -10,38 +10,27 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      # Шаг 1: Клонируем репозиторий с полной историей
+      # 1. Клонируем репозиторий
       - name: Checkout repository
         uses: actions/checkout@v3
         with:
           fetch-depth: 0
 
-      # Шаг 2: Устанавливаем jq
+      # 2. Устанавливаем jq
       - name: Install jq
         run: sudo apt-get install -y jq
 
-      # Шаг 3: Отладочная информация (необязательно)
-      - name: Debug info
-        run: |
-          echo ">>> Debug Info:"
-          echo "Remotes:"
-          git remote -v
-          echo "Branches (local and remote):"
-          git branch -a
-          echo "PR base ref: ${{ github.event.pull_request.base.ref }}"
-          echo "PR head ref: ${{ github.event.pull_request.head.ref }}"
-
-      # Шаг 4: Подтягиваем базовую ветку
+      # 3. Подтягиваем базовую ветку
       - name: Fetch base branch
         run: |
           BASE_REF=${{ github.event.pull_request.base.ref }}
           if [ -z "$BASE_REF" ]; then
             BASE_REF="main"
           fi
-          echo ">>> Fetching origin/$BASE_REF"
+          echo "Fetching origin/$BASE_REF"
           git fetch origin $BASE_REF
 
-      # Шаг 5: Получаем список изменённых *.md-файлов
+      # 4. Получаем изменённые файлы
       - name: Get changed files
         id: get_changed_files
         run: |
@@ -49,77 +38,66 @@ jobs:
           if [ -z "$BASE_REF" ]; then
             BASE_REF="main"
           fi
-          echo ">>> Сравниваем с веткой: origin/$BASE_REF"
-
           CHANGED_FILES=$(git diff --name-only origin/$BASE_REF -- '*.md' | iconv -f utf-8 -t utf-8)
           echo "CHANGED_FILES=$CHANGED_FILES" >> $GITHUB_ENV
-          echo ">>> Найденные изменённые файлы:"
-          echo "$CHANGED_FILES"
 
-      # Шаг 6: Анализируем изменённые файлы
+      # 5. Анализируем файлы
       - name: Analyze changed Markdown files
         id: analyze_files
         run: |
-          echo "Начинаем анализ изменённых файлов:"
           CHANGED_FILES="${CHANGED_FILES}"
           echo "Files to analyze: $CHANGED_FILES"
 
-          # Создадим временную папку для обработки файлов
           mkdir -p temp
-
           REVIEW=""
 
           for FILE in $CHANGED_FILES; do
-            echo "Анализ файла: $FILE"
+            echo "Analyzing file: $FILE"
 
-            # Получаем старую версию файла
+            # Получаем старую и новую версии файла
             git show origin/${{ github.event.pull_request.base.ref }}:"$FILE" > temp/old_version.md 2>/dev/null || echo "" > temp/old_version.md
-
-            # Получаем новую версию файла
             cat "$FILE" > temp/new_version.md 2>/dev/null || echo "" > temp/new_version.md
 
-            # Преобразуем содержимое в корректный JSON
+            # Преобразуем содержимое в JSON
             OLD_TEXT=$(cat temp/old_version.md | jq -Rs .)
             NEW_TEXT=$(cat temp/new_version.md | jq -Rs .)
 
-            # Анализируем содержимое через Hugging Face API
-            OLD_SENTIMENT=$(curl -s -X POST -H "Content-Type: application/json" \
-              -d "{\"inputs\": $OLD_TEXT}" \
-              https://api-inference.huggingface.co/models/blanchefort/rubert-base-cased-sentiment)
+            # Hugging Face токен
+            HF_TOKEN="${{ secrets.HUGGINGFACE_TOKEN }}"
 
-            NEW_SENTIMENT=$(curl -s -X POST -H "Content-Type: application/json" \
-              -d "{\"inputs\": $NEW_TEXT}" \
-              https://api-inference.huggingface.co/models/blanchefort/rubert-base-cased-sentiment)
+            # Анализ через Hugging Face API
+            OLD_SENTIMENT=$(curl -s -X POST -H "Authorization: Bearer $HF_TOKEN" -H "Content-Type: application/json" \
+              -d "{\"inputs\": $OLD_TEXT}" https://api-inference.huggingface.co/models/blanchefort/rubert-base-cased-sentiment)
 
-            # Обобщение текста
-            OLD_SUMMARY=$(curl -s -X POST -H "Content-Type: application/json" \
-              -d "{\"inputs\": $OLD_TEXT}" \
-              https://api-inference.huggingface.co/models/facebook/bart-large-cnn)
+            NEW_SENTIMENT=$(curl -s -X POST -H "Authorization: Bearer $HF_TOKEN" -H "Content-Type: application/json" \
+              -d "{\"inputs\": $NEW_TEXT}" https://api-inference.huggingface.co/models/blanchefort/rubert-base-cased-sentiment)
 
-            NEW_SUMMARY=$(curl -s -X POST -H "Content-Type: application/json" \
-              -d "{\"inputs\": $NEW_TEXT}" \
-              https://api-inference.huggingface.co/models/facebook/bart-large-cnn)
+            OLD_SUMMARY=$(curl -s -X POST -H "Authorization: Bearer $HF_TOKEN" -H "Content-Type: application/json" \
+              -d "{\"inputs\": $OLD_TEXT}" https://api-inference.huggingface.co/models/facebook/bart-large-cnn)
+
+            NEW_SUMMARY=$(curl -s -X POST -H "Authorization: Bearer $HF_TOKEN" -H "Content-Type: application/json" \
+              -d "{\"inputs\": $NEW_TEXT}" https://api-inference.huggingface.co/models/facebook/bart-large-cnn)
 
             # Сравнение обобщений
             SUMMARY_COMPARISON=$(diff <(echo "$OLD_SUMMARY" | jq -r '.[0].summary_text') <(echo "$NEW_SUMMARY" | jq -r '.[0].summary_text') || true)
 
-            # Проверка орфографии (новая версия)
-            SPELLING_ERRORS=$(curl -s -X POST "https://speller.yandex.net/services/spellservice.json/checkText" \
-              -H "Content-Type: application/x-www-form-urlencoded" \
-              -d "text=$(cat temp/new_version.md)&lang=ru")
-
             # Формируем отчёт
-            REVIEW+="\n### Анализ файла: $FILE\n\n"
-            REVIEW+="**Анализ старой версии (Hugging Face):**\n$OLD_SENTIMENT\n\n"
-            REVIEW+="**Анализ новой версии (Hugging Face):**\n$NEW_SENTIMENT\n\n"
-            REVIEW+="**Обобщение старого текста:**\n$OLD_SUMMARY\n\n"
-            REVIEW+="**Обобщение нового текста:**\n$NEW_SUMMARY\n\n"
+            REVIEW+="\n### Анализ файла: ${FILE}\n\n"
+            REVIEW+="**Анализ старой версии (Hugging Face):**\n\`\`\`\n$OLD_SENTIMENT\n\`\`\`\n\n"
+            REVIEW+="**Анализ новой версии (Hugging Face):**\n\`\`\`\n$NEW_SENTIMENT\n\`\`\`\n\n"
+            REVIEW+="**Обобщение старого текста:**\n\`\`\`\n$OLD_SUMMARY\n\`\`\`\n\n"
+            REVIEW+="**Обобщение нового текста:**\n\`\`\`\n$NEW_SUMMARY\n\`\`\`\n\n"
 
             if [ -n "$SUMMARY_COMPARISON" ]; then
-              REVIEW+="**Изменения в обобщении текста:**\n$SUMMARY_COMPARISON\n\n"
+              REVIEW+="**Изменения в обобщении текста:**\n\`\`\`\n$SUMMARY_COMPARISON\n\`\`\`\n\n"
             else
               REVIEW+="**Обобщение текста осталось без изменений.**\n\n"
             fi
+
+            # Проверка орфографии через Yandex.Speller
+            SPELLING_ERRORS=$(curl -s -X POST "https://speller.yandex.net/services/spellservice.json/checkText" \
+              -H "Content-Type: application/x-www-form-urlencoded" \
+              -d "text=$(cat temp/new_version.md)&lang=ru")
 
             if [ "$SPELLING_ERRORS" != "[]" ]; then
               REVIEW+="**Ошибки орфографии (Yandex.Speller):**\n"
@@ -135,7 +113,7 @@ jobs:
           echo "$REVIEW" >> $GITHUB_ENV
           echo "EOF" >> $GITHUB_ENV
 
-      # Шаг 7: Добавляем отчёт в комментарий
+      # 6. Добавляем отчёт в комментарий
       - name: Leave a comment
         uses: actions/github-script@v6
         with:
