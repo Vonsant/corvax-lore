@@ -20,14 +20,18 @@ jobs:
       - name: Install jq
         run: sudo apt-get install -y jq
 
+      # Убедимся, что базовая ветка существует и доступна
+      - name: Fetch base branch
+        run: |
+          git fetch --no-tags --prune --depth=2 origin ${{ github.event.pull_request.base.ref }}
+
       # Сбор изменений из PR
       - name: Get changed files
         id: get_changed_files
         run: |
-          # Убедимся, что базовая ветка извлечена
-          git fetch origin ${{ github.event.pull_request.base.ref }}:refs/remotes/origin/${{ github.event.pull_request.base.ref }}
-          # Сбор измененных файлов
-          CHANGED_FILES=$(git diff --name-only origin/${{ github.event.pull_request.base.ref }} -- '*.md')
+          # Убедимся, что мы сравниваем с правильной базовой веткой
+          BASE_REF=${{ github.event.pull_request.base.ref }}
+          CHANGED_FILES=$(git diff --name-only origin/$BASE_REF -- '*.md')
           echo "CHANGED_FILES=$CHANGED_FILES" >> $GITHUB_ENV
 
       # Анализ текста файлов
