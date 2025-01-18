@@ -1,0 +1,59 @@
+name: "Automatic Labeling"
+
+on:
+  pull_request:
+    paths:
+      - '**/*'
+
+jobs:
+  label-pr:
+    runs-on: ubuntu-latest
+
+    steps:
+      # Checkout the repository to access the changed files
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      # Determine changed files and apply labels
+      - name: Label PR based on folder
+        id: label_pr
+        run: |
+          echo "Determining changed files..."
+          CHANGED_FILES=$(git diff --name-only origin/${{ github.event.pull_request.base.ref }}..HEAD)
+
+          # Initialize an array to hold labels
+          LABELS=()
+
+          # Check each file and determine its folder
+          for FILE in $CHANGED_FILES; do
+            case $FILE in
+              00_*/*) LABELS+=("Правила") ;;
+              01_*/*) LABELS+=("Вселенная") ;;
+              02_*/*) LABELS+=("Станция") ;;
+              03_*/*) LABELS+=("Государства") ;;
+              04_*/*) LABELS+=("Корпорации") ;;
+              05_*/*) LABELS+=("Организации") ;;
+              06_*/*) LABELS+=("Расы") ;;
+              07_*/*) LABELS+=("Существа") ;;
+              08_*/*) LABELS+=("Технологии") ;;
+              09_*/*) LABELS+=("Вооружение") ;;
+              10_*/*) LABELS+=("Явления") ;;
+              11_*/*) LABELS+=("Товары") ;;
+              12_*/*) LABELS+=("Другое") ;;
+              13_*/*) LABELS+=("Истории") ;;
+              14_*/*) LABELS+=("Повседневность") ;;
+            esac
+          done
+
+          # Remove duplicate labels
+          UNIQUE_LABELS=$(echo "${LABELS[@]}" | tr ' ' '\n' | sort -u | tr '\n' ',' | sed 's/,$//')
+
+          echo "Unique labels determined: $UNIQUE_LABELS"
+          echo "::set-output name=labels::$UNIQUE_LABELS"
+
+      # Apply labels to the PR
+      - name: Add labels to PR
+        uses: actions-ecosystem/action-add-labels@v1
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          labels: ${{ steps.label_pr.outputs.labels }}
