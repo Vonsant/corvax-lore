@@ -3,7 +3,21 @@ name: "Detailed File Statistics"
 on:
   pull_request:
     paths:
-      - '**/*.md'
+      - '00_Правила_оформления/**/*.md'
+      - '01_Вселенная/**/*.md'
+      - '02_Станция/**/*.md'
+      - '03_Государства/**/*.md'
+      - '04_Корпорации/**/*.md'
+      - '05_Организации/**/*.md'
+      - '06_Расы/**/*.md'
+      - '07_Существа/**/*.md'
+      - '08_Технологии/**/*.md'
+      - '09_Вооружение/**/*.md'
+      - '10_Явления/**/*.md'
+      - '11_Товары/**/*.md'
+      - '12_Другое/**/*.md'
+      - '13_Истории/**/*.md'
+      - '14_Повседневность/**/*.md'
 
 jobs:
   pr-statistics:
@@ -48,7 +62,8 @@ jobs:
               }
 
           # Получаем измененные строки через git diff
-          diff_output = check_output(["git", "diff", "--unified=0", "origin/${{ github.event.pull_request.base.ref }}"], encoding="utf-8")
+          base_branch = os.environ['GITHUB_BASE_REF']
+          diff_output = check_output(["git", "diff", "--unified=0", f"origin/{base_branch}"], encoding="utf-8")
           file_changes = {}
 
           # Обработка изменений
