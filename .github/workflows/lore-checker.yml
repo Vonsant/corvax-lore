@@ -90,13 +90,13 @@ jobs:
              print(f"Failed to get changed files: {response.status_code}, {response.text}")
           return changed_files
 
-        # Collect all lore
-        def get_all_lore():
+        def get_lore_from_folder(filepath):
             lore = []
-            for root, dirs, files in os.walk("."):
+            folder = os.path.dirname(filepath)
+            for root, _, files in os.walk(folder):
                 for file in files:
                     if file.endswith('.md') and file not in ["README.md", "LICENSE.md"]:
-                        with open(os.path.join(root, file), 'r') as f:
+                        with open(os.path.join(root, file), 'r', encoding='utf-8') as f:
                             lore.append(f.read())
             return lore
 
@@ -115,10 +115,7 @@ jobs:
               else:
                  print("Comment posted successfully")
 
-
-
         changed_files = get_changed_files()
-        lore = get_all_lore()
         comments = []
 
         # Process changes
@@ -127,7 +124,7 @@ jobs:
                 try:
                   with open(filepath, 'r', encoding='utf-8') as f:
                       text = f.read()
-                      summary = model.generate_content(f"Summarize the following text in Russian language:\n\n{text}")
+                      summary = model.generate_content(f"Кратко опиши содержание следующего текста на русском языке:\n\n{text}")
                       summary_text = summary.candidates[0].content.parts[0].text if summary.candidates and summary.candidates[0].content.parts else "Нет доступного описания."
                       comments.append(f"### Описание для `{filepath}`\n\n{summary_text}\n")
 
@@ -140,8 +137,8 @@ jobs:
                    old_text = result.stdout
                    with open(filepath, 'r', encoding='utf-8') as f:
                        new_text = f.read()
-                   diff_summary = model.generate_content(f"Summarize the changes in Russian language:\n\nOld text:\n{old_text}\n\nNew text:\n{new_text}")
-                   new_summary = model.generate_content(f"Summarize the following text in Russian language:\n\n{new_text}")
+                   diff_summary = model.generate_content(f"Опиши изменения в следующем тексте на русском языке:\n\nСтарый текст:\n{old_text}\n\nНовый текст:\n{new_text}")
+                   new_summary = model.generate_content(f"Кратко опиши содержание следующего текста на русском языке:\n\n{new_text}")
 
                    diff_summary_text = diff_summary.candidates[0].content.parts[0].text if diff_summary.candidates and diff_summary.candidates[0].content.parts else "Нет доступного описания изменений"
                    new_summary_text = new_summary.candidates[0].content.parts[0].text if new_summary.candidates and new_summary.candidates[0].content.parts else "Нет доступного описания нового текста"
@@ -153,13 +150,30 @@ jobs:
                  except Exception as e:
                    comments.append(f"### Ошибка обработки измененного файла `{filepath}`: {e}")
 
-            if lore and status in ['added','modified']:
-                try:
-                  analysis = model.generate_content(f"Analyze how the changes in {filepath} fit into the following lore. Generate the analysis in Russian language:\n\n{''.join(lore)}")
-                  analysis_text = analysis.candidates[0].content.parts[0].text if analysis.candidates and analysis.candidates[0].content.parts else "Анализ соответствия лору недоступен"
-                  comments.append(f"### Анализ для `{filepath}`\n\n{analysis_text}\n")
-                except Exception as e:
-                 comments.append(f"### Ошибка анализа лора для `{filepath}`: {e}")
+            if status in ['added','modified']:
+                lore_subset = get_lore_from_folder(filepath)
+                if lore_subset:
+                    try:
+                        analysis = model.generate_content(f"Проанализируй, насколько изменения в файле {filepath} согласуются со следующим контекстом из той же папки. Сгенерируй анализ на русском языке:\n\n{''.join(lore_subset)}")
+                        analysis_text = analysis.candidates[0].content.parts[0].text if analysis.candidates and analysis.candidates[0].content.parts else "Анализ соответствия лору недоступен"
+                        comments.append(f"### Анализ соответствия лору для `{filepath}`\n\n{analysis_text}\n")
+
+                        inconsistencies = model.generate_content(f"Проанализируй текст в файле `{filepath}` на предмет неточностей и противоречий относительно следующего контекста из той же папки. Укажи конкретные места и сформулируй на русском языке:\n\n{''.join(lore_subset)}")
+                        inconsistencies_text = inconsistencies.candidates[0].content.parts[0].text if inconsistencies.candidates and inconsistencies.candidates[0].content.parts else "Неточностей и противоречий не выявлено."
+                        comments.append(f"### Потенциальные неточности и противоречия в `{filepath}`\n\n{inconsistencies_text}\n")
+
+                        suggestions = model.generate_content(f"На основе анализа текста в файле `{filepath}` и следующего контекста из той же папки, дай советы по улучшению статьи, что стоило бы добавить или исправить, на русском языке:\n\n{''.join(lore_subset)}")
+                        suggestions_text = suggestions.candidates[0].content.parts[0].text if suggestions.candidates and suggestions.candidates[0].content.parts else "Рекомендации по улучшению отсутствуют."
+                        comments.append(f"### Советы по улучшению для `{filepath}`\n\n{suggestions_text}\n")
+
+                        clarifications = model.generate_content(f"Укажи на неясные или требующие пояснения моменты в тексте файла `{filepath}` с учетом следующего контекста из той же папки, на русском языке:\n\n{''.join(lore_subset)}")
+                        clarifications_text = clarifications.candidates[0].content.parts[0].text if clarifications.candidates and clarifications.candidates[0].content.parts else "Неясных моментов не выявлено."
+                        comments.append(f"### Неясные моменты в `{filepath}`\n\n{clarifications_text}\n")
+
+                    except Exception as e:
+                        comments.append(f"### Ошибка анализа лора для `{filepath}`: {e}")
+                else:
+                    comments.append(f"### Внимание: Нет файлов лора для сравнения в той же папке, что и `{filepath}`.")
 
         # Post comments to the PR
         if comments:
