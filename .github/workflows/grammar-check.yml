@@ -60,24 +60,10 @@ jobs:
         with:
           python-version: '3.x'
 
-      # 7. Генерируем файл правил исключений
+      # 7. Генерируем файл правил исключений с помощью Python
       - name: Generate LanguageTool rules from dictionary
         run: |
-          mkdir -p .github/languagetool
-          cat .github/languagetool/custom_dict.txt | awk '{
-            printf "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\\n";
-            printf "<ruleset version=\"1\">\\n";
-            printf "  <rule id=\"IGNORE_" NR "\" name=\"Игнорировать слово \'%s\'\">\\n", $1;
-            printf "    <pattern>\\n";
-            printf "      <token regexp=\"yes\">%s</token>\\n", $1;
-            printf "    </pattern>\\n";
-            printf "    <message>Это слово разрешено в данном контексте.</message>\\n";
-            printf "    <short>Разрешенное слово</short>\\n";
-            printf "    <exampleCorrection></exampleCorrection>\\n";
-            printf "    <exception></exception>\\n";
-            printf "  </rule>\\n";
-            printf "</ruleset>\\n";
-          }' > .github/languagetool/custom_rules.xml
+          python .github/languagetool/generate_rules.py
 
       # 8. Собственно проверка .md-файлов
       - name: Run grammar check (RU) with Pandoc and custom rules
