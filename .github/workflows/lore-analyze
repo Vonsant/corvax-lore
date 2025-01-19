@@ -1,0 +1,85 @@
+name: Lore Analisator
+
+on:
+  pull_request:
+    paths:
+      - '01_Вселенная/**'
+      - '02_Станция/**'
+      - '03_Государства/**'
+      - '04_Корпорации/**'
+      - '05_Организации/**'
+      - '06_Расы/**'
+      - '07_Существа/**'
+      - '08_Технологии/**'
+      - '09_Вооружение/**'
+      - '10_Явления/**'
+      - '11_Товары/**'
+      - '12_Другое/**'
+      - '13_Истории/**'
+      - '14_Повседневность/**'
+
+jobs:
+  process_markdown:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v3
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.9'
+
+    - name: Install dependencies
+      run: |
+        pip install google-generativeai
+
+    - name: Analyze Markdown Changes
+      env:
+        GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+      run: |
+        python <<'EOF'
+        import os
+        import subprocess
+        from google.generativeai import genai
+
+        genai.configure(api_key=os.environ["GEMINI_API_KEY"])
+
+        # Get list of modified files
+        result = subprocess.run(["git", "diff", "--name-status", "HEAD~1", "HEAD"], capture_output=True, text=True)
+        changed_files = [line.split('\t') for line in result.stdout.strip().split('\n') if line.endswith('.md')]
+
+        # Collect lore
+        lore = []
+        for root, dirs, files in os.walk("."):
+            for file in files:
+                if file.endswith('.md') and file not in ["README.md", "LICENSE.md"]:
+                    with open(os.path.join(root, file), 'r') as f:
+                        lore.append(f.read())
+
+        for status, filepath in changed_files:
+            if status == 'A':  # New file
+                with open(filepath, 'r') as f:
+                    text = f.read()
+                    summary = genai.GenerativeModel("gemini-1.5-pro").generate_content(f"Summarize the following text:\n\n{text}")
+                    print(f"Summary for {filepath}:\n{summary.text}\n")
+
+            elif status == 'M':  # Modified file
+                result = subprocess.run(["git", "show", f"HEAD~1:{filepath}"], capture_output=True, text=True)
+                old_text = result.stdout
+                with open(filepath, 'r') as f:
+                    new_text = f.read()
+                diff_summary = genai.GenerativeModel("gemini-1.5-pro").generate_content(
+                    f"Summarize the changes:\n\nOld text:\n{old_text}\n\nNew text:\n{new_text}"
+                )
+                new_summary = genai.GenerativeModel("gemini-1.5-pro").generate_content(f"Summarize the following text:\n\n{new_text}")
+                print(f"Changes in {filepath}:\n{diff_summary.text}\n")
+                print(f"New summary for {filepath}:\n{new_summary.text}\n")
+
+            if lore:
+                analysis = genai.GenerativeModel("gemini-1.5-pro").generate_content(
+                    f"Analyze how the changes in {filepath} fit into the following lore:\n\n{''.join(lore)}"
+                )
+                print(f"Analysis for {filepath}:\n{analysis.text}\n")
+        EOF
