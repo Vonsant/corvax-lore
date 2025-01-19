@@ -34,68 +34,117 @@ jobs:
     - name: Install dependencies
       run: |
         pip install --upgrade pip
-        pip install google-generativeai==0.3.0
+        pip install google-generativeai==0.4.0
 
     - name: Analyze Markdown Changes
       env:
         GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        GITHUB_REPOSITORY: ${{ github.repository }}
       run: |
         python <<'EOF'
         import os
         import subprocess
         import google.generativeai as genai
         import requests
+        import json
 
         genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
 
-        # Get changed files
-        result = subprocess.run(["git", "diff", "--name-status", "HEAD~1", "HEAD"], capture_output=True, text=True)
-        changed_files = [line.split('\t') for line in result.stdout.strip().split('\n') if line.endswith('.md')]
+        def get_changed_files():
+          changed_files = []
+          pr_number = os.getenv("GITHUB_REF").split('/')[-2]
+          api_url = f"https://api.github.com/repos/{os.getenv('GITHUB_REPOSITORY')}/pulls/{pr_number}/files"
+          headers = {
+              "Authorization": f"Bearer {os.getenv('GITHUB_TOKEN')}",
+              "Accept": "application/vnd.github+json",
+          }
+          response = requests.get(api_url, headers=headers)
+          if response.status_code == 200:
+              files = response.json()
+              for file in files:
+                  if file["filename"].endswith(".md"):
+                      changed_files.append((file["status"], file["filename"]))
+          else:
+             print(f"Failed to get changed files: {response.status_code}, {response.text}")
+          return changed_files
 
         # Collect all lore
-        lore = []
-        for root, dirs, files in os.walk("."):
-            for file in files:
-                if file.endswith('.md') and file not in ["README.md", "LICENSE.md"]:
-                    with open(os.path.join(root, file), 'r') as f:
-                        lore.append(f.read())
+        def get_all_lore():
+            lore = []
+            for root, dirs, files in os.walk("."):
+                for file in files:
+                    if file.endswith('.md') and file not in ["README.md", "LICENSE.md"]:
+                        with open(os.path.join(root, file), 'r') as f:
+                            lore.append(f.read())
+            return lore
 
+        def create_comment(body):
+              repo = os.getenv("GITHUB_REPOSITORY")
+              pr_number = os.getenv("GITHUB_REF").split('/')[-2]
+              url = f"https://api.github.com/repos/{repo}/issues/{pr_number}/comments"
+              headers = {
+                "Authorization": f"Bearer {os.getenv('GITHUB_TOKEN')}",
+                  "Accept": "application/vnd.github+json",
+              }
+              payload = {"body": body}
+              response = requests.post(url, json=payload, headers=headers)
+              if response.status_code != 201:
+                  print(f"Failed to post comment: {response.status_code}, {response.text}")
+              else:
+                 print("Comment posted successfully")
+
+
+
+        changed_files = get_changed_files()
+        lore = get_all_lore()
         comments = []
 
         # Process changes
         for status, filepath in changed_files:
-            if status == 'A':  # New file
-                with open(filepath, 'r') as f:
-                    text = f.read()
-                    summary = genai.generate_content(prompt=f"Summarize the following text:\n\n{text}")
-                    comments.append(f"### Summary for `{filepath}`\n\n{summary['candidates'][0]['output']}\n")
+            if status == 'added':  # New file
+                try:
+                  with open(filepath, 'r', encoding='utf-8') as f:
+                      text = f.read()
+                      summary = genai.generate_content(prompt=f"Summarize the following text:\n\n{text}")
+                      summary_text = summary.candidates[0].content.parts[0].text if summary.candidates and summary.candidates[0].content.parts else "No summary available."
+                      comments.append(f"### Summary for `{filepath}`\n\n{summary_text}\n")
 
-            elif status == 'M':  # Modified file
-                result = subprocess.run(["git", "show", f"HEAD~1:{filepath}"], capture_output=True, text=True)
-                old_text = result.stdout
-                with open(filepath, 'r') as f:
-                    new_text = f.read()
-                diff_summary = genai.generate_content(prompt=f"Summarize the changes:\n\nOld text:\n{old_text}\n\nNew text:\n{new_text}")
-                new_summary = genai.generate_content(prompt=f"Summarize the following text:\n\n{new_text}")
-                comments.append(
-                    f"### Changes in `{filepath}`\n\n**Summary of changes:**\n{diff_summary['candidates'][0]['output']}\n\n"
-                    f"**Summary of the new text:**\n{new_summary['candidates'][0]['output']}\n"
-                )
+                except Exception as e:
+                  comments.append(f"### Error processing new file `{filepath}`: {e}")
 
-            if lore:
-                analysis = genai.generate_content(prompt=f"Analyze how the changes in {filepath} fit into the following lore:\n\n{''.join(lore)}")
-                comments.append(f"### Analysis for `{filepath}`\n\n{analysis['candidates'][0]['output']}\n")
+            elif status == 'modified':  # Modified file
+                 try:
+                   result = subprocess.run(["git", "show", f"HEAD~1:{filepath}"], capture_output=True, text=True)
+                   old_text = result.stdout
+                   with open(filepath, 'r', encoding='utf-8') as f:
+                       new_text = f.read()
+                   diff_summary = genai.generate_content(prompt=f"Summarize the changes:\n\nOld text:\n{old_text}\n\nNew text:\n{new_text}")
+                   new_summary = genai.generate_content(prompt=f"Summarize the following text:\n\n{new_text}")
+
+                   diff_summary_text = diff_summary.candidates[0].content.parts[0].text if diff_summary.candidates and diff_summary.candidates[0].content.parts else "No summary of changes available"
+                   new_summary_text = new_summary.candidates[0].content.parts[0].text if new_summary.candidates and new_summary.candidates[0].content.parts else "No summary of new text available"
+
+                   comments.append(
+                       f"### Changes in `{filepath}`\n\n**Summary of changes:**\n{diff_summary_text}\n\n"
+                       f"**Summary of the new text:**\n{new_summary_text}\n"
+                   )
+                 except Exception as e:
+                   comments.append(f"### Error processing modified file `{filepath}`: {e}")
+
+
+            if lore and status in ['added','modified']:
+                try:
+                  analysis = genai.generate_content(prompt=f"Analyze how the changes in {filepath} fit into the following lore:\n\n{''.join(lore)}")
+                  analysis_text = analysis.candidates[0].content.parts[0].text if analysis.candidates and analysis.candidates[0].content.parts else "No lore analysis available"
+                  comments.append(f"### Analysis for `{filepath}`\n\n{analysis_text}\n")
+                except Exception as e:
+                 comments.append(f"### Error analyzing lore for `{filepath}`: {e}")
+
 
         # Post comments to the PR
-        repo = os.getenv("GITHUB_REPOSITORY")
-        pr_number = os.getenv("GITHUB_REF").split('/')[-2]
-        url = f"https://api.github.com/repos/{repo}/issues/{pr_number}/comments"
-        headers = {"Authorization": f"Bearer {os.getenv('GITHUB_TOKEN')}"}
+        if comments:
+            comment_body = "\n".join(comments)
+            create_comment(comment_body)
 
-        for comment in comments:
-            payload = {"body": comment}
-            response = requests.post(url, json=payload, headers=headers)
-            if response.status_code != 201:
-                print(f"Failed to post comment: {response.status_code}, {response.text}")
         EOF
