@@ -125,7 +125,7 @@ jobs:
                 try:
                     with open(filepath, 'r', encoding='utf-8') as f:
                         text = f.read()
-                        tags_response = model.generate_content(f"На основе содержания, предложи 3-5 ключевых тега на русском языке для следующего текста:\n\n{text}")
+                        tags_response = model.generate_content(f"На основе содержания, предложи 3-5 ключевых тега на русском языке в формате '#тег'. Только теги, ничего больше:\n\n{text}")
                         tags_text = tags_response.candidates[0].content.parts[0].text.strip() if tags_response.candidates and tags_response.candidates[0].content.parts else "Не удалось получить теги."
                         initial_comments.append(f"### Теги для `{filepath}`\n\n{tags_text}\n")
                 except Exception as e:
