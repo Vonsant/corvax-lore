@@ -118,6 +118,23 @@ jobs:
         changed_files = get_changed_files()
         comments = []
 
+        # Initial comment with tags for new files
+        initial_comments = []
+        for status, filepath in changed_files:
+            if status == 'added':
+                try:
+                    with open(filepath, 'r', encoding='utf-8') as f:
+                        text = f.read()
+                        tags_response = model.generate_content(f"На основе содержания, предложи 3-5 ключевых тега на русском языке для следующего текста:\n\n{text}")
+                        tags_text = tags_response.candidates[0].content.parts[0].text.strip() if tags_response.candidates and tags_response.candidates[0].content.parts else "Не удалось получить теги."
+                        initial_comments.append(f"### Теги для `{filepath}`\n\n{tags_text}\n")
+                except Exception as e:
+                    initial_comments.append(f"### Ошибка получения тегов для `{filepath}`: {e}")
+
+        if initial_comments:
+            initial_comment_body = "\n".join(initial_comments)
+            create_comment(initial_comment_body)
+
         # Process changes
         for status, filepath in changed_files:
             if status == 'added':  # New file
@@ -125,7 +142,7 @@ jobs:
                   with open(filepath, 'r', encoding='utf-8') as f:
                       text = f.read()
                       summary = model.generate_content(f"Кратко опиши содержание следующего текста на русском языке:\n\n{text}")
-                      summary_text = summary.candidates[0].content.parts[0].text if summary.candidates and summary.candidates[0].content.parts else "Нет доступного описания."
+                      summary_text = summary.candidates[0].content.parts[0].text.strip() if summary.candidates and summary.candidates[0].content.parts else "Нет доступного описания."
                       comments.append(f"### Описание для `{filepath}`\n\n{summary_text}\n")
 
                 except Exception as e:
@@ -137,11 +154,11 @@ jobs:
                    old_text = result.stdout
                    with open(filepath, 'r', encoding='utf-8') as f:
                        new_text = f.read()
-                   diff_summary = model.generate_content(f"Опиши изменения в следующем тексте на русском языке:\n\nСтарый текст:\n{old_text}\n\nНовый текст:\n{new_text}")
+                   diff_summary = model.generate_content(f"Кратко опиши изменения в следующем тексте на русском языке:\n\nСтарый текст:\n{old_text}\n\nНовый текст:\n{new_text}")
                    new_summary = model.generate_content(f"Кратко опиши содержание следующего текста на русском языке:\n\n{new_text}")
 
-                   diff_summary_text = diff_summary.candidates[0].content.parts[0].text if diff_summary.candidates and diff_summary.candidates[0].content.parts else "Нет доступного описания изменений"
-                   new_summary_text = new_summary.candidates[0].content.parts[0].text if new_summary.candidates and new_summary.candidates[0].content.parts else "Нет доступного описания нового текста"
+                   diff_summary_text = diff_summary.candidates[0].content.parts[0].text.strip() if diff_summary.candidates and diff_summary.candidates[0].content.parts else "Нет доступного описания изменений"
+                   new_summary_text = new_summary.candidates[0].content.parts[0].text.strip() if new_summary.candidates and new_summary.candidates[0].content.parts else "Нет доступного описания нового текста"
 
                    comments.append(
                        f"### Изменения в `{filepath}`\n\n**Описание изменений:**\n{diff_summary_text}\n\n"
@@ -154,20 +171,20 @@ jobs:
                 lore_subset = get_lore_from_folder(filepath)
                 if lore_subset:
                     try:
-                        analysis = model.generate_content(f"Проанализируй, насколько изменения в файле {filepath} согласуются со следующим контекстом из той же папки. Сгенерируй анализ на русском языке:\n\n{''.join(lore_subset)}")
-                        analysis_text = analysis.candidates[0].content.parts[0].text if analysis.candidates and analysis.candidates[0].content.parts else "Анализ соответствия лору недоступен"
+                        analysis = model.generate_content(f"Кратко проанализируй, насколько изменения в файле {filepath} согласуются со следующим контекстом из той же папки. Сгенерируй анализ на русском языке:\n\n{''.join(lore_subset)}")
+                        analysis_text = analysis.candidates[0].content.parts[0].text.strip() if analysis.candidates and analysis.candidates[0].content.parts else "Анализ соответствия лору недоступен"
                         comments.append(f"### Анализ соответствия лору для `{filepath}`\n\n{analysis_text}\n")
 
-                        inconsistencies = model.generate_content(f"Проанализируй текст в файле `{filepath}` на предмет неточностей и противоречий относительно следующего контекста из той же папки. Укажи конкретные места и сформулируй на русском языке:\n\n{''.join(lore_subset)}")
-                        inconsistencies_text = inconsistencies.candidates[0].content.parts[0].text if inconsistencies.candidates and inconsistencies.candidates[0].content.parts else "Неточностей и противоречий не выявлено."
+                        inconsistencies = model.generate_content(f"Кратко проанализируй текст в файле `{filepath}` на предмет неточностей и противоречий относительно следующего контекста из той же папки. Укажи конкретные места и сформулируй на русском языке:\n\n{''.join(lore_subset)}")
+                        inconsistencies_text = inconsistencies.candidates[0].content.parts[0].text.strip() if inconsistencies.candidates and inconsistencies.candidates[0].content.parts else "Неточностей и противоречий не выявлено."
                         comments.append(f"### Потенциальные неточности и противоречия в `{filepath}`\n\n{inconsistencies_text}\n")
 
-                        suggestions = model.generate_content(f"На основе анализа текста в файле `{filepath}` и следующего контекста из той же папки, дай советы по улучшению статьи, что стоило бы добавить или исправить, на русском языке:\n\n{''.join(lore_subset)}")
-                        suggestions_text = suggestions.candidates[0].content.parts[0].text if suggestions.candidates and suggestions.candidates[0].content.parts else "Рекомендации по улучшению отсутствуют."
+                        suggestions = model.generate_content(f"Кратко, на основе анализа текста в файле `{filepath}` и следующего контекста из той же папки, дай советы по улучшению статьи, что стоило бы добавить или исправить, на русском языке:\n\n{''.join(lore_subset)}")
+                        suggestions_text = suggestions.candidates[0].content.parts[0].text.strip() if suggestions.candidates and suggestions.candidates[0].content.parts else "Рекомендации по улучшению отсутствуют."
                         comments.append(f"### Советы по улучшению для `{filepath}`\n\n{suggestions_text}\n")
 
-                        clarifications = model.generate_content(f"Укажи на неясные или требующие пояснения моменты в тексте файла `{filepath}` с учетом следующего контекста из той же папки, на русском языке:\n\n{''.join(lore_subset)}")
-                        clarifications_text = clarifications.candidates[0].content.parts[0].text if clarifications.candidates and clarifications.candidates[0].content.parts else "Неясных моментов не выявлено."
+                        clarifications = model.generate_content(f"Кратко укажи на неясные или требующие пояснения моменты в тексте файла `{filepath}` с учетом следующего контекста из той же папки, на русском языке:\n\n{''.join(lore_subset)}")
+                        clarifications_text = clarifications.candidates[0].content.parts[0].text.strip() if clarifications.candidates and clarifications.candidates[0].content.parts else "Неясных моментов не выявлено."
                         comments.append(f"### Неясные моменты в `{filepath}`\n\n{clarifications_text}\n")
 
                     except Exception as e:
