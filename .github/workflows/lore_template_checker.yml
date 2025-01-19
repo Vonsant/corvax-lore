@@ -17,8 +17,7 @@ on:
       - '12_Другое/**'
       - '13_Истории/**'
       - '14_Повседневность/**'
-    paths-ignore:
-      - '**/TEMPLATE.md'
+      - '!**/TEMPLATE.md' # Exclude TEMPLATE.md files
 
 jobs:
   lore_template_checker:
