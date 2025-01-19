@@ -1,4 +1,4 @@
-name: Lore and Template Checker
+name: Template Checker
 
 on:
   pull_request:
@@ -20,7 +20,7 @@ on:
       - '!**/TEMPLATE.md' # Exclude TEMPLATE.md files
 
 jobs:
-  lore_template_checker:
+  template_checker:
     runs-on: ubuntu-latest
 
     steps:
