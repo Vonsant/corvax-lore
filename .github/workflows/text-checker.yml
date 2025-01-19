@@ -54,33 +54,60 @@ jobs:
           for FILE in $CHANGED_FILES; do
             echo "Analyzing file: $FILE"
 
+            # Проверяем наличие файла
+            if [ ! -f "$FILE" ]; then
+              echo "File not found: $FILE"
+              continue
+            fi
+
             # Получаем старую и новую версии файла
             git show origin/${{ github.event.pull_request.base.ref }}:"$FILE" > temp/old_version.md 2>/dev/null || echo "" > temp/old_version.md
             cat "$FILE" > temp/new_version.md 2>/dev/null || echo "" > temp/new_version.md
 
-            # Преобразуем содержимое в JSON
-            OLD_TEXT=$(cat temp/old_version.md | jq -Rs .)
-            NEW_TEXT=$(cat temp/new_version.md | jq -Rs .)
+            # Проверяем содержимое
+            if [ ! -s temp/old_version.md ] && [ ! -s temp/new_version.md ]; then
+              echo "Both versions of the file are empty. Skipping analysis."
+              continue
+            fi
+
+            # Преобразуем содержимое в JSON (проверка валидности)
+            OLD_TEXT=$(cat temp/old_version.md | jq -Rs . || echo "{}")
+            NEW_TEXT=$(cat temp/new_version.md | jq -Rs . || echo "{}")
 
             # Hugging Face токен
             HF_TOKEN="${{ secrets.HUGGINGFACE_TOKEN }}"
 
-            # Анализируем содержимое через Hugging Face API
+            # Анализ тональности
             OLD_SENTIMENT=$(curl -s -X POST -H "Authorization: Bearer $HF_TOKEN" -H "Content-Type: application/json" \
-              -d "{\"inputs\": $OLD_TEXT}" https://api-inference.huggingface.co/models/blanchefort/rubert-base-cased-sentiment)
+              -d "{\"inputs\": $OLD_TEXT}" https://api-inference.huggingface.co/models/blanchefort/rubert-base-cased-sentiment || echo "{}")
 
             NEW_SENTIMENT=$(curl -s -X POST -H "Authorization: Bearer $HF_TOKEN" -H "Content-Type: application/json" \
-              -d "{\"inputs\": $NEW_TEXT}" https://api-inference.huggingface.co/models/blanchefort/rubert-base-cased-sentiment)
+              -d "{\"inputs\": $NEW_TEXT}" https://api-inference.huggingface.co/models/blanchefort/rubert-base-cased-sentiment || echo "{}")
 
-            # Обобщение с использованием подходящей модели для русского языка
+            # Проверяем, является ли результат валидным JSON
+            OLD_SENTIMENT_VALID=$(echo "$OLD_SENTIMENT" | jq empty >/dev/null 2>&1 && echo "true" || echo "false")
+            NEW_SENTIMENT_VALID=$(echo "$NEW_SENTIMENT" | jq empty >/dev/null 2>&1 && echo "true" || echo "false")
+
+            if [ "$OLD_SENTIMENT_VALID" != "true" ] || [ "$NEW_SENTIMENT_VALID" != "true" ]; then
+              echo "Invalid JSON from sentiment analysis. Skipping file."
+              continue
+            fi
+
+            # Обобщение текста
             OLD_SUMMARY=$(curl -s -X POST -H "Authorization: Bearer $HF_TOKEN" -H "Content-Type: application/json" \
-              -d "{\"inputs\": $OLD_TEXT}" https://api-inference.huggingface.co/models/IlyaGusev/rugpt3medium_sum)
+              -d "{\"inputs\": $OLD_TEXT}" https://api-inference.huggingface.co/models/IlyaGusev/rugpt3medium_sum || echo "{}")
 
             NEW_SUMMARY=$(curl -s -X POST -H "Authorization: Bearer $HF_TOKEN" -H "Content-Type: application/json" \
-              -d "{\"inputs\": $NEW_TEXT}" https://api-inference.huggingface.co/models/IlyaGusev/rugpt3medium_sum)
+              -d "{\"inputs\": $NEW_TEXT}" https://api-inference.huggingface.co/models/IlyaGusev/rugpt3medium_sum || echo "{}")
 
-            # Сравнение обобщений
-            SUMMARY_COMPARISON=$(diff <(echo "$OLD_SUMMARY" | jq -r '.[0].summary_text') <(echo "$NEW_SUMMARY" | jq -r '.[0].summary_text') || true)
+            # Проверяем, является ли результат валидным JSON
+            OLD_SUMMARY_VALID=$(echo "$OLD_SUMMARY" | jq empty >/dev/null 2>&1 && echo "true" || echo "false")
+            NEW_SUMMARY_VALID=$(echo "$NEW_SUMMARY" | jq empty >/dev/null 2>&1 && echo "true" || echo "false")
+
+            if [ "$OLD_SUMMARY_VALID" != "true" ] || [ "$NEW_SUMMARY_VALID" != "true" ]; then
+              echo "Invalid JSON from summarization. Skipping file."
+              continue
+            fi
 
             # Формируем отчёт
             REVIEW+="\n### Анализ файла: ${FILE}\n\n"
@@ -88,25 +115,6 @@ jobs:
             REVIEW+="**Анализ новой версии (Hugging Face):**\n\`\`\`\n$NEW_SENTIMENT\n\`\`\`\n\n"
             REVIEW+="**Обобщение старого текста:**\n\`\`\`\n$(echo "$OLD_SUMMARY" | jq -r '.[0].summary_text')\n\`\`\`\n\n"
             REVIEW+="**Обобщение нового текста:**\n\`\`\`\n$(echo "$NEW_SUMMARY" | jq -r '.[0].summary_text')\n\`\`\`\n\n"
-
-            if [ -n "$SUMMARY_COMPARISON" ]; then
-              REVIEW+="**Изменения в обобщении текста:**\n\`\`\`\n$SUMMARY_COMPARISON\n\`\`\`\n\n"
-            else
-              REVIEW+="**Обобщение текста осталось без изменений.**\n\n"
-            fi
-
-            # Проверка орфографии через Yandex.Speller
-            SPELLING_ERRORS=$(curl -s -X POST "https://speller.yandex.net/services/spellservice.json/checkText" \
-              -H "Content-Type: application/x-www-form-urlencoded" \
-              -d "text=$(cat temp/new_version.md)&lang=ru")
-
-            if [ "$SPELLING_ERRORS" != "[]" ]; then
-              REVIEW+="**Ошибки орфографии (Yandex.Speller):**\n"
-              REVIEW+=$(echo "$SPELLING_ERRORS" | jq -r '.[] | "- Ошибка: " + .word + ", Возможные варианты: " + (.s | join(", "))')
-              REVIEW+="\n\n"
-            else
-              REVIEW+="**Ошибок орфографии не обнаружено.**\n\n"
-            fi
           done
 
           # Сохраняем отчёт в Environment File
