@@ -86,10 +86,11 @@ jobs:
             # 1) MD -> plain text (Pandoc)
             pandoc "$FILE" -t plain -o /tmp/conversion.txt
 
-            # 2) Запуск LanguageTool CLI
+            # 2) Запуск LanguageTool CLI с указанием словаря исключений
             java -jar lt/LanguageTool-6.5/languagetool-commandline.jar \
               --language ru \
               --mothertongue ru \
+              --allow_words .github/languagetool/custom_dict.txt \
               /tmp/conversion.txt \
               >> grammar_output.txt \
               || true
