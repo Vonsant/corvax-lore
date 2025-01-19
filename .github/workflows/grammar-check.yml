@@ -44,18 +44,30 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y pandoc
 
-      # 4. Скачиваем LanguageTool (v6.5)
+      # 4. Скачиваем LanguageTool (последняя стабильная версия)
       - name: Download LanguageTool
         run: |
-          wget https://languagetool.org/download/LanguageTool-6.5.zip -O lt.zip
+          wget https://languagetool.org/download/LanguageTool-stable.zip -O lt.zip
           unzip lt.zip -d lt
 
       # 5. Отключаем экранирование путей в Git (важно для кириллических файлов!)
       - name: Disable Git path quoting
         run: git config core.quotepath off
 
-      # 6. Собственно проверка .md-файлов
-      - name: Run grammar check (RU) with Pandoc
+      # 6. Устанавливаем Python для генерации правил
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.x'
+
+      # 7. Генерируем файл правил исключений
+      - name: Generate LanguageTool rules from dictionary
+        run: |
+          mkdir -p .github/languagetool
+          cat .github/languagetool/custom_dict.txt | awk '{print "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<ruleset version=\"1\">\n  <rule id=\"IGNORE_" NR "\" name=\"Игнорировать слово \'$1\'\">\n    <pattern>\n      <token regexp=\"yes\">"$1"</token>\n    </pattern>\n    <message>Это слово разрешено в данном контексте.</message>\n    <short>Разрешенное слово</short>\n    <exampleCorrection></exampleCorrection>\n    <exception></exception>\n  </rule>\n</ruleset>" }' > .github/languagetool/custom_rules.xml
+
+      # 8. Собственно проверка .md-файлов
+      - name: Run grammar check (RU) with Pandoc and custom rules
         id: run_languagetool
         run: |
           # SHAs для diff
@@ -86,11 +98,11 @@ jobs:
             # 1) MD -> plain text (Pandoc)
             pandoc "$FILE" -t plain -o /tmp/conversion.txt
 
-            # 2) Запуск LanguageTool CLI с указанием словаря исключений
-            java -jar lt/LanguageTool-6.5/languagetool-commandline.jar \
+            # 2) Запуск LanguageTool CLI с указанием файла правил
+            java -jar lt/LanguageTool-stable/languagetool-commandline.jar \
               --language ru \
               --mothertongue ru \
-              --allow_words .github/languagetool/custom_dict.txt \
+              --rulefile .github/languagetool/custom_rules.xml \
               /tmp/conversion.txt \
               >> grammar_output.txt \
               || true
@@ -98,7 +110,7 @@ jobs:
             echo "" >> grammar_output.txt
           done
 
-      # 7. Публикуем результаты в PR
+      # 9. Публикуем результаты в PR
       - name: Create PR comment with suggestions
         if: always()
         uses: actions/github-script@v6
