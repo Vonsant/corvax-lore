@@ -34,25 +34,26 @@ jobs:
     - name: Install dependencies
       run: |
         pip install --upgrade pip
-        pip install google-generativeai==0.3.0  # Убедитесь, что используется правильная версия библиотеки
+        pip install google-generativeai==0.3.0
 
     - name: Analyze Markdown Changes
       env:
         GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       run: |
         python <<'EOF'
         import os
         import subprocess
         import google.generativeai as genai
+        import requests
 
-        # Настройка ключа API
         genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
 
-        # Получение изменённых файлов
+        # Get changed files
         result = subprocess.run(["git", "diff", "--name-status", "HEAD~1", "HEAD"], capture_output=True, text=True)
         changed_files = [line.split('\t') for line in result.stdout.strip().split('\n') if line.endswith('.md')]
 
-        # Сбор всего лора
+        # Collect all lore
         lore = []
         for root, dirs, files in os.walk("."):
             for file in files:
@@ -60,25 +61,41 @@ jobs:
                     with open(os.path.join(root, file), 'r') as f:
                         lore.append(f.read())
 
-        # Обработка изменений
+        comments = []
+
+        # Process changes
         for status, filepath in changed_files:
-            if status == 'A':  # Новый файл
+            if status == 'A':  # New file
                 with open(filepath, 'r') as f:
                     text = f.read()
                     summary = genai.generate_content(prompt=f"Summarize the following text:\n\n{text}")
-                    print(f"Summary for {filepath}:\n{summary['candidates'][0]['output']}\n")
+                    comments.append(f"### Summary for `{filepath}`\n\n{summary['candidates'][0]['output']}\n")
 
-            elif status == 'M':  # Изменённый файл
+            elif status == 'M':  # Modified file
                 result = subprocess.run(["git", "show", f"HEAD~1:{filepath}"], capture_output=True, text=True)
                 old_text = result.stdout
                 with open(filepath, 'r') as f:
                     new_text = f.read()
                 diff_summary = genai.generate_content(prompt=f"Summarize the changes:\n\nOld text:\n{old_text}\n\nNew text:\n{new_text}")
                 new_summary = genai.generate_content(prompt=f"Summarize the following text:\n\n{new_text}")
-                print(f"Changes in {filepath}:\n{diff_summary['candidates'][0]['output']}\n")
-                print(f"New summary for {filepath}:\n{new_summary['candidates'][0]['output']}\n")
+                comments.append(
+                    f"### Changes in `{filepath}`\n\n**Summary of changes:**\n{diff_summary['candidates'][0]['output']}\n\n"
+                    f"**Summary of the new text:**\n{new_summary['candidates'][0]['output']}\n"
+                )
 
             if lore:
                 analysis = genai.generate_content(prompt=f"Analyze how the changes in {filepath} fit into the following lore:\n\n{''.join(lore)}")
-                print(f"Analysis for {filepath}:\n{analysis['candidates'][0]['output']}\n")
+                comments.append(f"### Analysis for `{filepath}`\n\n{analysis['candidates'][0]['output']}\n")
+
+        # Post comments to the PR
+        repo = os.getenv("GITHUB_REPOSITORY")
+        pr_number = os.getenv("GITHUB_REF").split('/')[-2]
+        url = f"https://api.github.com/repos/{repo}/issues/{pr_number}/comments"
+        headers = {"Authorization": f"Bearer {os.getenv('GITHUB_TOKEN')}"}
+
+        for comment in comments:
+            payload = {"body": comment}
+            response = requests.post(url, json=payload, headers=headers)
+            if response.status_code != 201:
+                print(f"Failed to post comment: {response.status_code}, {response.text}")
         EOF
