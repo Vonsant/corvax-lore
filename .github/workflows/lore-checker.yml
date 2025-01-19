@@ -127,12 +127,12 @@ jobs:
                 try:
                   with open(filepath, 'r', encoding='utf-8') as f:
                       text = f.read()
-                      summary = model.generate_content(f"Summarize the following text:\n\n{text}")
-                      summary_text = summary.candidates[0].content.parts[0].text if summary.candidates and summary.candidates[0].content.parts else "No summary available."
-                      comments.append(f"### Summary for `{filepath}`\n\n{summary_text}\n")
+                      summary = model.generate_content(f"Summarize the following text in Russian:\n\n{text}")
+                      summary_text = summary.candidates[0].content.parts[0].text if summary.candidates and summary.candidates[0].content.parts else "Нет доступного описания."
+                      comments.append(f"### Описание для `{filepath}`\n\n{summary_text}\n")
 
                 except Exception as e:
-                  comments.append(f"### Error processing new file `{filepath}`: {e}")
+                  comments.append(f"### Ошибка обработки нового файла `{filepath}`: {e}")
 
             elif status == 'modified':  # Modified file
                  try:
@@ -140,28 +140,26 @@ jobs:
                    old_text = result.stdout
                    with open(filepath, 'r', encoding='utf-8') as f:
                        new_text = f.read()
-                   diff_summary = model.generate_content(f"Summarize the changes:\n\nOld text:\n{old_text}\n\nNew text:\n{new_text}")
-                   new_summary = model.generate_content(f"Summarize the following text:\n\n{new_text}")
+                   diff_summary = model.generate_content(f"Summarize the changes in Russian:\n\nOld text:\n{old_text}\n\nNew text:\n{new_text}")
+                   new_summary = model.generate_content(f"Summarize the following text in Russian:\n\n{new_text}")
 
-                   diff_summary_text = diff_summary.candidates[0].content.parts[0].text if diff_summary.candidates and diff_summary.candidates[0].content.parts else "No summary of changes available"
-                   new_summary_text = new_summary.candidates[0].content.parts[0].text if new_summary.candidates and new_summary.candidates[0].content.parts else "No summary of new text available"
+                   diff_summary_text = diff_summary.candidates[0].content.parts[0].text if diff_summary.candidates and diff_summary.candidates[0].content.parts else "Нет доступного описания изменений"
+                   new_summary_text = new_summary.candidates[0].content.parts[0].text if new_summary.candidates and new_summary.candidates[0].content.parts else "Нет доступного описания нового текста"
 
                    comments.append(
-                       f"### Changes in `{filepath}`\n\n**Summary of changes:**\n{diff_summary_text}\n\n"
-                       f"**Summary of the new text:**\n{new_summary_text}\n"
+                       f"### Изменения в `{filepath}`\n\n**Описание изменений:**\n{diff_summary_text}\n\n"
+                       f"**Описание нового текста:**\n{new_summary_text}\n"
                    )
                  except Exception as e:
-                   comments.append(f"### Error processing modified file `{filepath}`: {e}")
-
+                   comments.append(f"### Ошибка обработки измененного файла `{filepath}`: {e}")
 
             if lore and status in ['added','modified']:
                 try:
-                  analysis = model.generate_content(f"Analyze how the changes in {filepath} fit into the following lore:\n\n{''.join(lore)}")
-                  analysis_text = analysis.candidates[0].content.parts[0].text if analysis.candidates and analysis.candidates[0].content.parts else "No lore analysis available"
-                  comments.append(f"### Analysis for `{filepath}`\n\n{analysis_text}\n")
+                  analysis = model.generate_content(f"Analyze how the changes in {filepath} fit into the following lore in Russian:\n\n{''.join(lore)}")
+                  analysis_text = analysis.candidates[0].content.parts[0].text if analysis.candidates and analysis.candidates[0].content.parts else "Анализ соответствия лору недоступен"
+                  comments.append(f"### Анализ для `{filepath}`\n\n{analysis_text}\n")
                 except Exception as e:
-                 comments.append(f"### Error analyzing lore for `{filepath}`: {e}")
-
+                 comments.append(f"### Ошибка анализа лора для `{filepath}`: {e}")
 
         # Post comments to the PR
         if comments:
