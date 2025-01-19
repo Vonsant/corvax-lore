@@ -19,7 +19,7 @@ on:
       - '14_Повседневность/**'
 
 jobs:
-  process_markdown:
+  lore_checker:
     runs-on: ubuntu-latest
 
     steps:
