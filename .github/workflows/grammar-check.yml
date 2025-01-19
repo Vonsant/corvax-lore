@@ -64,7 +64,20 @@ jobs:
       - name: Generate LanguageTool rules from dictionary
         run: |
           mkdir -p .github/languagetool
-          cat .github/languagetool/custom_dict.txt | awk '{print "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<ruleset version=\"1\">\n  <rule id=\"IGNORE_" NR "\" name=\"Игнорировать слово \'$1\'\">\n    <pattern>\n      <token regexp=\"yes\">"$1"</token>\n    </pattern>\n    <message>Это слово разрешено в данном контексте.</message>\n    <short>Разрешенное слово</short>\n    <exampleCorrection></exampleCorrection>\n    <exception></exception>\n  </rule>\n</ruleset>" }' > .github/languagetool/custom_rules.xml
+          cat .github/languagetool/custom_dict.txt | awk '{
+            printf "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\\n";
+            printf "<ruleset version=\"1\">\\n";
+            printf "  <rule id=\"IGNORE_" NR "\" name=\"Игнорировать слово \'%s\'\">\\n", $1;
+            printf "    <pattern>\\n";
+            printf "      <token regexp=\"yes\">%s</token>\\n", $1;
+            printf "    </pattern>\\n";
+            printf "    <message>Это слово разрешено в данном контексте.</message>\\n";
+            printf "    <short>Разрешенное слово</short>\\n";
+            printf "    <exampleCorrection></exampleCorrection>\\n";
+            printf "    <exception></exception>\\n";
+            printf "  </rule>\\n";
+            printf "</ruleset>\\n";
+          }' > .github/languagetool/custom_rules.xml
 
       # 8. Собственно проверка .md-файлов
       - name: Run grammar check (RU) with Pandoc and custom rules
