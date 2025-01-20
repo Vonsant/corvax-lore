@@ -5,7 +5,7 @@ on:
     paths:
       - '00_Правила_оформления/**/*.md'
       - '01_Вселенная/**/*.md'
-      - '02_Станция/**/*.md'
+      - '02_Объекты/**/*.md'
       - '03_Государства/**/*.md'
       - '04_Корпорации/**/*.md'
       - '05_Организации/**/*.md'
@@ -44,29 +44,18 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y pandoc
 
-      # 4. Скачиваем LanguageTool (последняя стабильная версия)
+      # 4. Скачиваем LanguageTool (v6.5)
       - name: Download LanguageTool
         run: |
-          wget https://languagetool.org/download/LanguageTool-stable.zip -O lt.zip
+          wget https://languagetool.org/download/LanguageTool-6.5.zip -O lt.zip
           unzip lt.zip -d lt
 
       # 5. Отключаем экранирование путей в Git (важно для кириллических файлов!)
       - name: Disable Git path quoting
         run: git config core.quotepath off
 
-      # 6. Устанавливаем Python для генерации правил
-      - name: Set up Python
-        uses: actions/setup-python@v4
-        with:
-          python-version: '3.x'
-
-      # 7. Генерируем файл правил исключений с помощью Python
-      - name: Generate LanguageTool rules from dictionary
-        run: |
-          python .github/languagetool/generate_rules.py
-
-      # 8. Собственно проверка .md-файлов
-      - name: Run grammar check (RU) with Pandoc and custom rules
+      # 6. Собственно проверка .md-файлов
+      - name: Run grammar check (RU) with Pandoc
         id: run_languagetool
         run: |
           # SHAs для diff
@@ -97,11 +86,10 @@ jobs:
             # 1) MD -> plain text (Pandoc)
             pandoc "$FILE" -t plain -o /tmp/conversion.txt
 
-            # 2) Запуск LanguageTool CLI с указанием файла правил
-            java -jar lt/LanguageTool-stable/languagetool-commandline.jar \
+            # 2) Запуск LanguageTool CLI
+            java -jar lt/LanguageTool-6.5/languagetool-commandline.jar \
               --language ru \
               --mothertongue ru \
-              --rulefile .github/languagetool/custom_rules.xml \
               /tmp/conversion.txt \
               >> grammar_output.txt \
               || true
@@ -109,7 +97,7 @@ jobs:
             echo "" >> grammar_output.txt
           done
 
-      # 9. Публикуем результаты в PR
+      # 7. Публикуем результаты в PR
       - name: Create PR comment with suggestions
         if: always()
         uses: actions/github-script@v6
@@ -129,19 +117,55 @@ jobs:
               return;
             }
 
-            // Ограничение на размер комментария (60к символов)
-            const maxLength = 60000;
-            let trimmed = suggestions;
-            if (trimmed.length > maxLength) {
-              trimmed = trimmed.substring(0, maxLength) +
-                "\n\n[...ВЫВОД ОТРЕЗАН ПОСЛЕ 60К СИМВОЛОВ...]";
+            const files = suggestions.split('--------------------------------\n');
+            const comments = [];
+            
+            for (const fileData of files) {
+                if (!fileData.trim()) continue;
+
+                const lines = fileData.trim().split('\n');
+                const fileNameMatch = lines[0].match(/Проверка файла: (.*)/);
+                
+                if (!fileNameMatch) continue;
+                const fileName = fileNameMatch[1];
+
+                const content = lines.slice(2).join('\n');
+
+               if (content.trim()) {
+                  const commentBody = `<details><summary>Грамматические замечания для <code>${fileName}</code></summary>\n\n\`\`\`\n${content.trim()}\n\`\`\`\n</details>`;
+                   comments.push(commentBody);
+                }
             }
 
-            const body = `## LanguageTool (RU) — Проверка грамматики\n\n\`\`\`\n${trimmed}\n\`\`\``;
+             // Ограничение на количество комментариев (50)
+            const maxComments = 50;
+            let currentComment = "";
+            let commentCounter = 0;
 
-            github.rest.issues.createComment({
-              issue_number: context.issue.number,
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              body: body
-            });
+            for (const comment of comments) {
+              if (commentCounter < maxComments){
+                  currentComment += comment + "\n\n";
+              }
+              else {
+                const body = `## LanguageTool (RU) — Проверка грамматики\n\n${currentComment}`
+                  await github.rest.issues.createComment({
+                      issue_number: context.issue.number,
+                      owner: context.repo.owner,
+                      repo: context.repo.repo,
+                      body: body
+                    });
+                  currentComment = comment + "\n\n"
+                  commentCounter = 0;
+                }
+                commentCounter++;
+            }
+              
+            if (currentComment) {
+               const body = `## LanguageTool (RU) — Проверка грамматики\n\n${currentComment}`
+                  await github.rest.issues.createComment({
+                      issue_number: context.issue.number,
+                      owner: context.repo.owner,
+                      repo: context.repo.repo,
+                      body: body
+                    });
+            }
