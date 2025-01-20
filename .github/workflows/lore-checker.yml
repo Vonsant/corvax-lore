@@ -111,7 +111,7 @@ jobs:
                  if any(exclude_dir in root for exclude_dir in exclude_dirs):
                     continue
                  for file in files:
-                     if file.endswith('.md') and file not in ["README.md", "TEMPLATE.md"]:
+                     if file.endswith('.md') and file not in ["README.md", "TEMPLATE.md", "design_document.md"]:
                        full_path = os.path.join(root, file)
                        with open(full_path, 'r', encoding='utf-8') as f:
                            lore_files[full_path] = f.read()
@@ -124,28 +124,63 @@ jobs:
             dirname = os.path.dirname(filepath)
             root_dirname = dirname.split(os.sep)[0]
             file_name = os.path.basename(filepath)
+            
+            if file_name == "design_document.md":
+                if status == 'added':
+                    # Only process new design_document.md with Общие_правила.md
+                    rules_path = "00_Правила_оформления/Общие_правила.md"
+                    try:
+                        with open(filepath, 'r', encoding='utf-8') as f:
+                            file_content = f.read()
+                        with open(rules_path, 'r', encoding='utf-8') as r:
+                            rules_content = r.read()
+
+                        prompt_rules = f"""
+                            Проанализируй следующий текст (полное содержимое файла) на соответствие общим правилам оформления (полное содержимое правил).
+                            Укажи, чего не хватает в тексте файла по сравнению с правилами.
+                            Сформулируй свои рекомендации на русском языке, четко указывая, какие разделы или информацию стоит добавить в текст файла,
+                            чтобы он не противоречил общим правилам оформления.
+
+                            Текст файла (полное содержимое):
+                            {file_content}
+
+                            Общие правила оформления:
+                            {rules_content}
+                            """
+                        response_rules = model.generate_content(prompt_rules)
+                        recommendations_rules_text = response_rules.candidates[0].content.parts[0].text.strip() if response_rules.candidates and response_rules.candidates[0].content.parts else "Не удалось получить рекомендации по общим правилам."
+                        comments.append(f"<details><summary>Проверка `design_document.md` на соответствие общим правилам</summary>\n\n{recommendations_rules_text}\n</details>")
+                    except Exception as e:
+                        comments.append(f"<details><summary>Ошибка проверки `design_document.md` на соответствие общим правилам</summary>\n\n{e}\n</details>")
+                    
+                    if comments:
+                        comment_body = f"### Анализ файла `{file_name}` в папке `{root_dirname}`:\n\n" + "\n".join(comments)
+                        create_comment(comment_body)
+                continue  # Skip the rest of the processing for design_document.md
+            
 
 
             # 0. Summary of the file
             try:
               with open(filepath, 'r', encoding='utf-8') as f:
                   text = f.read()
-                  summary = model.generate_content(f"Кратко опиши содержание следующего текста на русском языке:\n\n{text}")
+                  summary = model.generate_content(f"Проанализируй и опиши содержание следующего текста на русском языке, указывая на неточности, нелогичные моменты и ошибки в тексте:\n\n{text}")
                   summary_text = summary.candidates[0].content.parts[0].text.strip() if summary.candidates and summary.candidates[0].content.parts else "Нет доступного описания."
                   comments.append(f"<details><summary>Краткий пересказ для `{filepath}`</summary>\n\n{summary_text}\n</details>")
             except Exception as e:
               comments.append(f"<details><summary>Ошибка краткого пересказа для `{filepath}`</summary>\n\n{e}</details>")
 
 
-            # 1. Tags for the file
-            try:
-                with open(filepath, 'r', encoding='utf-8') as f:
-                    text = f.read()
-                    tags_response = model.generate_content(f"На основе содержания, предложи 3-5 ключевых тега на русском языке в формате '#тег'. Только теги, ничего больше:\n\n{text}")
-                    tags_text = tags_response.candidates[0].content.parts[0].text.strip() if tags_response.candidates and tags_response.candidates[0].content.parts else "Не удалось получить теги."
-                    comments.append(f"<details><summary>Теги для `{filepath}`</summary>\n\n{tags_text}\n</details>")
-            except Exception as e:
-                comments.append(f"<details><summary>Ошибка получения тегов для `{filepath}`</summary>\n\n{e}</details>")
+            # 1. Tags for the file (only for new files)
+            if status == 'added':
+              try:
+                  with open(filepath, 'r', encoding='utf-8') as f:
+                      text = f.read()
+                      tags_response = model.generate_content(f"На основе содержания, предложи 3-5 ключевых тега на русском языке в формате '#тег'. Только теги, ничего больше:\n\n{text}")
+                      tags_text = tags_response.candidates[0].content.parts[0].text.strip() if tags_response.candidates and tags_response.candidates[0].content.parts else "Не удалось получить теги."
+                      comments.append(f"<details><summary>Теги для `{filepath}`</summary>\n\n{tags_text}\n</details>")
+              except Exception as e:
+                  comments.append(f"<details><summary>Ошибка получения тегов для `{filepath}`</summary>\n\n{e}</details>")
 
 
             # 2. Comparison with design_document.md
@@ -276,13 +311,13 @@ jobs:
                 if context_content:
 
                    prompt_all_lore = f"""
-                    Кратко проанализируй текст в файле `{filepath}` на предмет неточностей и противоречий относительно следующего контекста (содержимого всех остальных файлов .md в репозитории, кроме README.md и TEMPLATE.md).
+                    Кратко проанализируй текст в файле `{filepath}` на предмет неточностей и противоречий относительно следующего контекста (содержимого всех остальных файлов .md в репозитории, кроме README.md, TEMPLATE.md и design_document.md).
                     Укажи конкретные места и сформулируй свои рекомендации на русском языке.
 
                     Текст файла (полное содержимое):
                     {file_content}
 
-                    Контекст (полное содержимое всех остальных файлов .md в репозитории, кроме README.md и TEMPLATE.md):
+                    Контекст (полное содержимое всех остальных файлов .md в репозитории, кроме README.md, TEMPLATE.md и design_document.md):
                     {context_content}
                     """
                    response_all_lore = model.generate_content(prompt_all_lore)
@@ -308,13 +343,13 @@ jobs:
 
                  if context_category_content:
                    prompt_same_category = f"""
-                        Кратко проанализируй текст в файле `{filepath}` на предмет неточностей и противоречий относительно следующего контекста (содержимого всех остальных файлов .md в той же папке, кроме README.md и TEMPLATE.md).
+                        Кратко проанализируй текст в файле `{filepath}` на предмет неточностей и противоречий относительно следующего контекста (содержимого всех остальных файлов .md в той же папке, кроме README.md, TEMPLATE.md и design_document.md).
                         Укажи конкретные места и сформулируй свои рекомендации на русском языке.
 
                         Текст файла (полное содержимое):
                         {file_content}
 
-                        Контекст (полное содержимое всех остальных файлов .md в той же папке, кроме README.md и TEMPLATE.md):
+                        Контекст (полное содержимое всех остальных файлов .md в той же папке, кроме README.md, TEMPLATE.md и design_document.md):
                         {context_category_content}
                         """
                    response_same_category = model.generate_content(prompt_same_category)
