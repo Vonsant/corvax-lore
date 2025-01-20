@@ -1,4 +1,4 @@
-name: Lore Checker
+name: Unibersal Lore Checker
 
 on:
   pull_request:
@@ -19,7 +19,7 @@ on:
       - '14_Повседневность/**'
 
 jobs:
-  lore_checker:
+  universal_lore_checker:
     runs-on: ubuntu-latest
     steps:
     - name: Checkout repository
@@ -164,7 +164,7 @@ jobs:
             try:
               with open(filepath, 'r', encoding='utf-8') as f:
                   text = f.read()
-                  summary = model.generate_content(f"Кратко опиши содержание следующего текста на русском языке:\n\n{text}")
+                  summary = model.generate_content(f"Опиши содержание следующего текста на русском языке, укажи все нелогичные моменты, слабые места и ошибки:\n\n{text}")
                   summary_text = summary.candidates[0].content.parts[0].text.strip() if summary.candidates and summary.candidates[0].content.parts else "Нет доступного описания."
                   comments.append(f"<details><summary>Краткий пересказ для `{filepath}`</summary>\n\n{summary_text}\n</details>")
             except Exception as e:
@@ -344,7 +344,7 @@ jobs:
                  if context_category_content:
                    prompt_same_category = f"""
                         Кратко проанализируй текст в файле `{filepath}` на предмет неточностей и противоречий относительно следующего контекста (содержимого всех остальных файлов .md в той же папке, кроме README.md, TEMPLATE.md и design_document.md).
-                        Укажи конкретные места и сформулируй свои рекомендации на русском языке. Анализ должен касаться только ошибок и неточностей файла `{filepath}` и не указывать на ошибки в других файлах.
+                        Укажи конкретные места и сформулируй свои рекомендации на русском языке. Анализ должен касаться только ошибок и неточностей файла `{filepath}` на предмет неточностей и противоречий относительно остального контента. Например, если у расы "Унатхи" указано, что они в дружелюбном отношении с расой "Люди", а у расы "Люди" указано, что они во враждебных отношениях с расой "Унатхи", это должно быть отмечено.
 
                         Текст файла (полное содержимое):
                         {file_content}
